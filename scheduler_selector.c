@@ -3,6 +3,7 @@
 #include "scheduler_selector.h"
 #include "scheduler_rr.h"
 #include "scheduler_priority.h"
+#include "scheduler_sjf.h"
 
 SchedulerType parseSchedulerType(const char *value) {
     if (value == NULL) {
@@ -18,6 +19,10 @@ SchedulerType parseSchedulerType(const char *value) {
         return SCHEDULER_PRIORITY;
     }
 
+    if (strcmp(value, "sjf") == 0 || strcmp(value, "SJF") == 0 || strcmp(value, "3") == 0) {
+        return SCHEDULER_SJF;
+    }
+
     printf("[AVISO] Calendarizador '%s' no reconocido. Se usara RR por defecto.\n", value);
     return SCHEDULER_RR;
 }
@@ -28,6 +33,8 @@ const char *schedulerTypeToString(SchedulerType scheduler_type) {
             return "Round Robin";
         case SCHEDULER_PRIORITY:
             return "Prioridad";
+        case SCHEDULER_SJF:
+            return "SJF";
         default:
             return "Desconocido";
     }
@@ -36,6 +43,8 @@ const char *schedulerTypeToString(SchedulerType scheduler_type) {
 void insertTaskByScheduler(ReadyQueue *queue, Task task, SchedulerType scheduler_type) {
     if (scheduler_type == SCHEDULER_PRIORITY) {
         enqueueByPriority(queue, task);
+    } else if (scheduler_type == SCHEDULER_SJF) {
+        enqueueBySJF(queue, task);
     } else {
         enqueue(queue, task);
     }
@@ -54,6 +63,10 @@ void runSchedulerTwoQueues(SchedulerType scheduler_type,
 
         case SCHEDULER_PRIORITY:
             runPriorityTwoQueues(left_queue, right_queue);
+            break;
+
+        case SCHEDULER_SJF:
+            runSJFTwoQueues(left_queue, right_queue);
             break;
 
         default:

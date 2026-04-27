@@ -25,12 +25,33 @@ Task createTaskWithPriority(int id, const char *name, ShipType type, Side side, 
     return task;
 }
 
+Task createTaskWithDeadline(int id, const char *name, ShipType type, Side side, int burst_time, int deadline) {
+    Task task = createTask(id, name, type, side, burst_time);
+    task.deadline = deadline;
+    return task;
+}
+
+Task createTaskWithPriorityAndDeadline(int id, const char *name, ShipType type, Side side, int burst_time, int priority, int deadline) {
+    Task task = createTask(id, name, type, side, burst_time);
+    task.priority = priority;
+    task.deadline = deadline;
+    return task;
+}
+
 void setTaskPriority(Task *task, int priority) {
     if (task == NULL) {
         return;
     }
 
     task->priority = priority;
+}
+
+void setTaskDeadline(Task *task, int deadline) {
+    if (task == NULL) {
+        return;
+    }
+
+    task->deadline = deadline;
 }
 
 void initQueue(ReadyQueue *queue, const char *name, int capacity) {
@@ -115,12 +136,14 @@ void printQueue(const ReadyQueue *queue) {
 
     Node *current = queue->front;
     while (current != NULL) {
-        printf("%s(id=%d, tipo=%s, restante=%d, prioridad=%d)",
+        printf("%s(id=%d, tipo=%s, tiempo=%d, restante=%d, prioridad=%d, deadline=%d)",
                current->task.name,
                current->task.id,
                shipTypeToString(current->task.type),
+               current->task.burst_time,
                current->task.remaining_time,
-               current->task.priority);
+               current->task.priority,
+               current->task.deadline);
 
         if (current->next != NULL) {
             printf(" -> ");

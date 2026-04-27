@@ -1,7 +1,7 @@
 CC=gcc
 CFLAGS=-Wall -Wextra -std=c11
 TARGET=scheduling_ships
-SRCS=main.c scheduler.c scheduler_rr.c scheduler_priority.c scheduler_sjf.c scheduler_strn.c scheduler_fcfs.c scheduler_selector.c
+SRCS=main.c scheduler.c scheduler_rr.c scheduler_priority.c scheduler_sjf.c scheduler_strn.c scheduler_fcfs.c scheduler_edf.c scheduler_selector.c
 
 all: $(TARGET)
 
@@ -22,6 +22,9 @@ run-strn: $(TARGET)
 
 run-fcfs: $(TARGET)
 	./$(TARGET) fcfs
+
+run-edf: $(TARGET)
+	./$(TARGET) edf
 
 clean:
 	rm -f $(TARGET) *.o

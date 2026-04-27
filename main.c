@@ -10,7 +10,7 @@ int main(int argc, char *argv[]) {
     if (argc >= 2) {
         scheduler_type = parseSchedulerType(argv[1]);
     } else {
-        printf("Uso: %s <rr|priority|sjf|strn|fcfs> [quantum]\n", argv[0]);
+        printf("Uso: %s <rr|priority|sjf|strn|fcfs|edf> [quantum]\n", argv[0]);
         printf("No se indico calendarizador. Se usara RR por defecto.\n");
     }
 
@@ -35,29 +35,30 @@ int main(int argc, char *argv[]) {
      * En SJF se usa burst_time como el tiempo total de cada barco.
      * En STRN se usa remaining_time como el tiempo restante de cada barco.
      * En FCFS se respeta el orden en que se insertan los barcos.
+     * En EDF se usa deadline como el tiempo maximo permitido para pasar.
      */
     insertTaskByScheduler(&left_queue,
-                          createTaskWithPriority(1, "L1", NORMAL, LEFT_SIDE, 5, 5),
+                          createTaskWithPriorityAndDeadline(1, "L1", NORMAL, LEFT_SIDE, 5, 5, 8),
                           scheduler_type);
 
     insertTaskByScheduler(&left_queue,
-                          createTaskWithPriority(2, "L2", PATROL, LEFT_SIDE, 3, 1),
+                          createTaskWithPriorityAndDeadline(2, "L2", PATROL, LEFT_SIDE, 3, 1, 4),
                           scheduler_type);
 
     insertTaskByScheduler(&left_queue,
-                          createTaskWithPriority(3, "L3", FISHING, LEFT_SIDE, 4, 3),
+                          createTaskWithPriorityAndDeadline(3, "L3", FISHING, LEFT_SIDE, 4, 3, 6),
                           scheduler_type);
 
     insertTaskByScheduler(&right_queue,
-                          createTaskWithPriority(4, "R1", NORMAL, RIGHT_SIDE, 6, 4),
+                          createTaskWithPriorityAndDeadline(4, "R1", NORMAL, RIGHT_SIDE, 6, 4, 9),
                           scheduler_type);
 
     insertTaskByScheduler(&right_queue,
-                          createTaskWithPriority(5, "R2", PATROL, RIGHT_SIDE, 2, 1),
+                          createTaskWithPriorityAndDeadline(5, "R2", PATROL, RIGHT_SIDE, 2, 1, 3),
                           scheduler_type);
 
     insertTaskByScheduler(&right_queue,
-                          createTaskWithPriority(6, "R3", FISHING, RIGHT_SIDE, 4, 2),
+                          createTaskWithPriorityAndDeadline(6, "R3", FISHING, RIGHT_SIDE, 4, 2, 5),
                           scheduler_type);
 
     printf("\nEstado inicial de las colas:\n");

@@ -25,3 +25,7 @@ Ejecutar STRN:
 Ejecutar FCFS:
     ./scheduling_ships fcfs
     make run-fcfs
+
+    Ejecutar EDF:
+    ./scheduling_ships edf
+    make run-edf

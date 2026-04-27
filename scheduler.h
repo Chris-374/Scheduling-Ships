@@ -43,7 +43,10 @@ typedef struct {
 
 Task createTask(int id, const char *name, ShipType type, Side side, int burst_time);
 Task createTaskWithPriority(int id, const char *name, ShipType type, Side side, int burst_time, int priority);
+Task createTaskWithDeadline(int id, const char *name, ShipType type, Side side, int burst_time, int deadline);
+Task createTaskWithPriorityAndDeadline(int id, const char *name, ShipType type, Side side, int burst_time, int priority, int deadline);
 void setTaskPriority(Task *task, int priority);
+void setTaskDeadline(Task *task, int deadline);
 
 void initQueue(ReadyQueue *queue, const char *name, int capacity);
 int isQueueEmpty(const ReadyQueue *queue);

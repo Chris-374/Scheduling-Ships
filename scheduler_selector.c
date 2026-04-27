@@ -6,6 +6,7 @@
 #include "scheduler_sjf.h"
 #include "scheduler_strn.h"
 #include "scheduler_fcfs.h"
+#include "scheduler_edf.h"
 
 SchedulerType parseSchedulerType(const char *value) {
     if (value == NULL) {
@@ -33,6 +34,10 @@ SchedulerType parseSchedulerType(const char *value) {
         return SCHEDULER_FCFS;
     }
 
+    if (strcmp(value, "edf") == 0 || strcmp(value, "EDF") == 0 || strcmp(value, "6") == 0) {
+        return SCHEDULER_EDF;
+    }
+
     printf("[AVISO] Calendarizador '%s' no reconocido. Se usara RR por defecto.\n", value);
     return SCHEDULER_RR;
 }
@@ -49,6 +54,8 @@ const char *schedulerTypeToString(SchedulerType scheduler_type) {
             return "STRN";
         case SCHEDULER_FCFS:
             return "FCFS";
+        case SCHEDULER_EDF:
+            return "EDF";
         default:
             return "Desconocido";
     }
@@ -61,6 +68,8 @@ void insertTaskByScheduler(ReadyQueue *queue, Task task, SchedulerType scheduler
         enqueueBySJF(queue, task);
     } else if (scheduler_type == SCHEDULER_STRN) {
         enqueueBySTRN(queue, task);
+    } else if (scheduler_type == SCHEDULER_EDF) {
+        enqueueByEDF(queue, task);
     } else {
         /* RR y FCFS respetan el orden normal de llegada. */
         enqueue(queue, task);
@@ -92,6 +101,10 @@ void runSchedulerTwoQueues(SchedulerType scheduler_type,
 
         case SCHEDULER_FCFS:
             runFCFSTwoQueues(left_queue, right_queue);
+            break;
+
+        case SCHEDULER_EDF:
+            runEDFTwoQueues(left_queue, right_queue);
             break;
 
         default:

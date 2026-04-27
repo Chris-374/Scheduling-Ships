@@ -6,7 +6,8 @@
 typedef enum {
     SCHEDULER_RR = 1,
     SCHEDULER_PRIORITY = 2,
-    SCHEDULER_SJF = 3
+    SCHEDULER_SJF = 3,
+    SCHEDULER_STRN = 4
 } SchedulerType;
 
 SchedulerType parseSchedulerType(const char *value);

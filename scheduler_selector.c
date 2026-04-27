@@ -4,6 +4,7 @@
 #include "scheduler_rr.h"
 #include "scheduler_priority.h"
 #include "scheduler_sjf.h"
+#include "scheduler_strn.h"
 
 SchedulerType parseSchedulerType(const char *value) {
     if (value == NULL) {
@@ -23,6 +24,10 @@ SchedulerType parseSchedulerType(const char *value) {
         return SCHEDULER_SJF;
     }
 
+    if (strcmp(value, "strn") == 0 || strcmp(value, "STRN") == 0 || strcmp(value, "4") == 0) {
+        return SCHEDULER_STRN;
+    }
+
     printf("[AVISO] Calendarizador '%s' no reconocido. Se usara RR por defecto.\n", value);
     return SCHEDULER_RR;
 }
@@ -35,6 +40,8 @@ const char *schedulerTypeToString(SchedulerType scheduler_type) {
             return "Prioridad";
         case SCHEDULER_SJF:
             return "SJF";
+        case SCHEDULER_STRN:
+            return "STRN";
         default:
             return "Desconocido";
     }
@@ -45,6 +52,8 @@ void insertTaskByScheduler(ReadyQueue *queue, Task task, SchedulerType scheduler
         enqueueByPriority(queue, task);
     } else if (scheduler_type == SCHEDULER_SJF) {
         enqueueBySJF(queue, task);
+    } else if (scheduler_type == SCHEDULER_STRN) {
+        enqueueBySTRN(queue, task);
     } else {
         enqueue(queue, task);
     }
@@ -67,6 +76,10 @@ void runSchedulerTwoQueues(SchedulerType scheduler_type,
 
         case SCHEDULER_SJF:
             runSJFTwoQueues(left_queue, right_queue);
+            break;
+
+        case SCHEDULER_STRN:
+            runSTRNTwoQueues(left_queue, right_queue);
             break;
 
         default:

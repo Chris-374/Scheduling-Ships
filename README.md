@@ -17,3 +17,7 @@ Ejecutar Prioridad:
 Ejecutar SJF:
     ./scheduling_ships sjf
     make run-sjf
+
+Ejecutar STRN:
+    ./scheduling_ships strn
+    make run-strn

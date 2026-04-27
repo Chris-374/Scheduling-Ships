@@ -23,7 +23,7 @@ typedef struct {
     int burst_time;
     int remaining_time;
 
-    /* Campos que se usaran despues con otros calendarizadores */
+    /* Campos usados por otros calendarizadores */
     int priority;
     int deadline;
 } Task;
@@ -42,6 +42,8 @@ typedef struct {
 } ReadyQueue;
 
 Task createTask(int id, const char *name, ShipType type, Side side, int burst_time);
+Task createTaskWithPriority(int id, const char *name, ShipType type, Side side, int burst_time, int priority);
+void setTaskPriority(Task *task, int priority);
 
 void initQueue(ReadyQueue *queue, const char *name, int capacity);
 int isQueueEmpty(const ReadyQueue *queue);

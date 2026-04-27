@@ -21,3 +21,7 @@ Ejecutar SJF:
 Ejecutar STRN:
     ./scheduling_ships strn
     make run-strn
+
+Ejecutar FCFS:
+    ./scheduling_ships fcfs
+    make run-fcfs

@@ -10,7 +10,7 @@ int main(int argc, char *argv[]) {
     if (argc >= 2) {
         scheduler_type = parseSchedulerType(argv[1]);
     } else {
-        printf("Uso: %s <rr|priority|sjf|strn> [quantum]\n", argv[0]);
+        printf("Uso: %s <rr|priority|sjf|strn|fcfs> [quantum]\n", argv[0]);
         printf("No se indico calendarizador. Se usara RR por defecto.\n");
     }
 
@@ -34,6 +34,7 @@ int main(int argc, char *argv[]) {
      * Regla: menor numero = mayor prioridad.
      * En SJF se usa burst_time como el tiempo total de cada barco.
      * En STRN se usa remaining_time como el tiempo restante de cada barco.
+     * En FCFS se respeta el orden en que se insertan los barcos.
      */
     insertTaskByScheduler(&left_queue,
                           createTaskWithPriority(1, "L1", NORMAL, LEFT_SIDE, 5, 5),

@@ -5,6 +5,7 @@
 #include "scheduler_priority.h"
 #include "scheduler_sjf.h"
 #include "scheduler_strn.h"
+#include "scheduler_fcfs.h"
 
 SchedulerType parseSchedulerType(const char *value) {
     if (value == NULL) {
@@ -28,6 +29,10 @@ SchedulerType parseSchedulerType(const char *value) {
         return SCHEDULER_STRN;
     }
 
+    if (strcmp(value, "fcfs") == 0 || strcmp(value, "FCFS") == 0 || strcmp(value, "5") == 0) {
+        return SCHEDULER_FCFS;
+    }
+
     printf("[AVISO] Calendarizador '%s' no reconocido. Se usara RR por defecto.\n", value);
     return SCHEDULER_RR;
 }
@@ -42,6 +47,8 @@ const char *schedulerTypeToString(SchedulerType scheduler_type) {
             return "SJF";
         case SCHEDULER_STRN:
             return "STRN";
+        case SCHEDULER_FCFS:
+            return "FCFS";
         default:
             return "Desconocido";
     }
@@ -55,6 +62,7 @@ void insertTaskByScheduler(ReadyQueue *queue, Task task, SchedulerType scheduler
     } else if (scheduler_type == SCHEDULER_STRN) {
         enqueueBySTRN(queue, task);
     } else {
+        /* RR y FCFS respetan el orden normal de llegada. */
         enqueue(queue, task);
     }
 }
@@ -80,6 +88,10 @@ void runSchedulerTwoQueues(SchedulerType scheduler_type,
 
         case SCHEDULER_STRN:
             runSTRNTwoQueues(left_queue, right_queue);
+            break;
+
+        case SCHEDULER_FCFS:
+            runFCFSTwoQueues(left_queue, right_queue);
             break;
 
         default:

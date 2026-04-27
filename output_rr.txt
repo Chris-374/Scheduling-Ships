@@ -1,0 +1,72 @@
+Estado inicial de las colas:
+
+COLA IZQUIERDA [3/4]: L1(id=1, tipo=Normal, restante=5) -> L2(id=2, tipo=Pesquera, restante=3) -> L3(id=3, tipo=Patrulla, restante=4)
+
+COLA DERECHA [3/4]: R1(id=4, tipo=Normal, restante=6) -> R2(id=5, tipo=Pesquera, restante=2) -> R3(id=6, tipo=Patrulla, restante=5)
+
+========== SIMULACION RR CON DOS COLAS ==========
+Quantum: 2
+
+---------- Ciclo 1 ----------
+RR en COLA IZQUIERDA: ejecutando L1 por 2 unidad(es). Restante: 3.
+RR en COLA DERECHA: ejecutando R1 por 2 unidad(es). Restante: 4.
+
+COLA IZQUIERDA [3/4]: L2(id=2, tipo=Pesquera, restante=3) -> L3(id=3, tipo=Patrulla, restante=4) -> L1(id=1, tipo=Normal, restante=3)
+
+COLA DERECHA [3/4]: R2(id=5, tipo=Pesquera, restante=2) -> R3(id=6, tipo=Patrulla, restante=5) -> R1(id=4, tipo=Normal, restante=4)
+
+---------- Ciclo 2 ----------
+RR en COLA IZQUIERDA: ejecutando L2 por 2 unidad(es). Restante: 1.
+RR en COLA DERECHA: ejecutando R2 por 2 unidad(es). Restante: 0.
+R2 termino y sale de la cola.
+
+COLA IZQUIERDA [3/4]: L3(id=3, tipo=Patrulla, restante=4) -> L1(id=1, tipo=Normal, restante=3) -> L2(id=2, tipo=Pesquera, restante=1)
+
+COLA DERECHA [2/4]: R3(id=6, tipo=Patrulla, restante=5) -> R1(id=4, tipo=Normal, restante=4)
+
+---------- Ciclo 3 ----------
+RR en COLA IZQUIERDA: ejecutando L3 por 2 unidad(es). Restante: 2.
+RR en COLA DERECHA: ejecutando R3 por 2 unidad(es). Restante: 3.
+
+COLA IZQUIERDA [3/4]: L1(id=1, tipo=Normal, restante=3) -> L2(id=2, tipo=Pesquera, restante=1) -> L3(id=3, tipo=Patrulla, restante=2)
+
+COLA DERECHA [2/4]: R1(id=4, tipo=Normal, restante=4) -> R3(id=6, tipo=Patrulla, restante=3)
+
+---------- Ciclo 4 ----------
+RR en COLA IZQUIERDA: ejecutando L1 por 2 unidad(es). Restante: 1.
+RR en COLA DERECHA: ejecutando R1 por 2 unidad(es). Restante: 2.
+
+COLA IZQUIERDA [3/4]: L2(id=2, tipo=Pesquera, restante=1) -> L3(id=3, tipo=Patrulla, restante=2) -> L1(id=1, tipo=Normal, restante=1)
+
+COLA DERECHA [2/4]: R3(id=6, tipo=Patrulla, restante=3) -> R1(id=4, tipo=Normal, restante=2)
+
+---------- Ciclo 5 ----------
+RR en COLA IZQUIERDA: ejecutando L2 por 1 unidad(es). Restante: 0.
+L2 termino y sale de la cola.
+RR en COLA DERECHA: ejecutando R3 por 2 unidad(es). Restante: 1.
+
+COLA IZQUIERDA [2/4]: L3(id=3, tipo=Patrulla, restante=2) -> L1(id=1, tipo=Normal, restante=1)
+
+COLA DERECHA [2/4]: R1(id=4, tipo=Normal, restante=2) -> R3(id=6, tipo=Patrulla, restante=1)
+
+---------- Ciclo 6 ----------
+RR en COLA IZQUIERDA: ejecutando L3 por 2 unidad(es). Restante: 0.
+L3 termino y sale de la cola.
+RR en COLA DERECHA: ejecutando R1 por 2 unidad(es). Restante: 0.
+R1 termino y sale de la cola.
+
+COLA IZQUIERDA [1/4]: L1(id=1, tipo=Normal, restante=1)
+
+COLA DERECHA [1/4]: R3(id=6, tipo=Patrulla, restante=1)
+
+---------- Ciclo 7 ----------
+RR en COLA IZQUIERDA: ejecutando L1 por 1 unidad(es). Restante: 0.
+L1 termino y sale de la cola.
+RR en COLA DERECHA: ejecutando R3 por 1 unidad(es). Restante: 0.
+R3 termino y sale de la cola.
+
+COLA IZQUIERDA [0/4]: vacia
+
+COLA DERECHA [0/4]: vacia
+
+Todas las colas quedaron vacias.

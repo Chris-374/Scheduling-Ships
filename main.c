@@ -1,74 +1,166 @@
 #include <stdio.h>
-#include <stdlib.h>
-#include "scheduler.h"
-#include "scheduler_selector.h"
 
-int main(int argc, char *argv[]) {
-    SchedulerType scheduler_type = SCHEDULER_RR;
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+#include "ship_tasks.h"
+#include "ready_queue.h"
+#include "scheduler_rr_freertos.h"
+
+/*
+ * Barcos reales.
+ *
+ * Por ahora son globales para que sigan existiendo durante
+ * toda la ejecucion del programa.
+ */
+static ShipTask ship1;
+static ShipTask ship2;
+static ShipTask ship3;
+static ShipTask ship4;
+
+/*
+ * Colas de listos.
+ *
+ * Simulan los dos lados del canal:
+ * - izquierda
+ * - derecha
+ */
+static ReadyQueue left_queue;
+static ReadyQueue right_queue;
+
+/*
+ * Esta es la task del calendarizador.
+ *
+ * Su trabajo es ejecutar el algoritmo RR sobre las dos colas.
+ */
+void schedulerTask(void *pvParameters) {
     int quantum = 2;
 
-    if (argc >= 2) {
-        scheduler_type = parseSchedulerType(argv[1]);
-    } else {
-        printf("Uso: %s <rr|priority|sjf|strn|fcfs|edf> [quantum]\n", argv[0]);
-        printf("No se indico calendarizador. Se usara RR por defecto.\n");
-    }
+    printf("\n[SCHEDULER] Iniciando calendarizador RR\n");
 
-    if (argc >= 3) {
-        quantum = atoi(argv[2]);
-        if (quantum <= 0) {
-            printf("[AVISO] Quantum invalido. Se usara quantum = 2.\n");
-            quantum = 2;
-        }
-    }
+    printQueue(&left_queue);
+    printQueue(&right_queue);
 
-    ReadyQueue left_queue;
-    ReadyQueue right_queue;
+    runRoundRobinFreeRTOSTwoQueues(
+        &left_queue,
+        &right_queue,
+        quantum
+    );
 
+    printf("\n[SCHEDULER] Calendarizacion terminada.\n");
+
+    /*
+     * Se limpian los nodos de las colas.
+     * Esto no elimina las tasks reales, solo limpia las colas.
+     */
+    destroyQueue(&left_queue);
+    destroyQueue(&right_queue);
+
+    vTaskDelete(NULL);
+}
+
+/*
+ * Punto de entrada de ESP-IDF.
+ */
+void app_main(void) {
+    printf("\n===== SCHEDULING SHIPS CON TASKS REALES =====\n");
+
+    /*
+     * Inicializamos las dos colas de listos.
+     */
     initQueue(&left_queue, "Cola izquierda", MAX_QUEUE_SIZE);
     initQueue(&right_queue, "Cola derecha", MAX_QUEUE_SIZE);
 
     /*
-     * Carga de prueba.
-     * En Prioridad se usa el campo priority.
-     * Regla: menor numero = mayor prioridad.
-     * En SJF se usa burst_time como el tiempo total de cada barco.
-     * En STRN se usa remaining_time como el tiempo restante de cada barco.
-     * En FCFS se respeta el orden en que se insertan los barcos.
-     * En EDF se usa deadline como el tiempo maximo permitido para pasar.
+     * Creamos barcos como tasks reales de FreeRTOS.
+     *
+     * Parametros:
+     * createShipTask(
+     *     &barco,
+     *     id,
+     *     nombre,
+     *     tipo,
+     *     lado,
+     *     tiempo_total,
+     *     prioridad,
+     *     deadline
+     * );
      */
-    insertTaskByScheduler(&left_queue,
-                          createTaskWithPriorityAndDeadline(1, "L1", NORMAL, LEFT_SIDE, 5, 5, 8),
-                          scheduler_type);
+    createShipTask(
+        &ship1,
+        1,
+        "L1_Normal",
+        NORMAL,
+        LEFT_SIDE,
+        5,
+        4,
+        12
+    );
 
-    insertTaskByScheduler(&left_queue,
-                          createTaskWithPriorityAndDeadline(2, "L2", PATROL, LEFT_SIDE, 3, 1, 4),
-                          scheduler_type);
+    createShipTask(
+        &ship2,
+        2,
+        "L2_Patrulla",
+        PATROL,
+        LEFT_SIDE,
+        3,
+        1,
+        5
+    );
 
-    insertTaskByScheduler(&left_queue,
-                          createTaskWithPriorityAndDeadline(3, "L3", FISHING, LEFT_SIDE, 4, 3, 6),
-                          scheduler_type);
+    createShipTask(
+        &ship3,
+        3,
+        "R1_Pesquera",
+        FISHING,
+        RIGHT_SIDE,
+        4,
+        2,
+        8
+    );
 
-    insertTaskByScheduler(&right_queue,
-                          createTaskWithPriorityAndDeadline(4, "R1", NORMAL, RIGHT_SIDE, 6, 4, 9),
-                          scheduler_type);
+    createShipTask(
+        &ship4,
+        4,
+        "R2_Normal",
+        NORMAL,
+        RIGHT_SIDE,
+        6,
+        5,
+        15
+    );
 
-    insertTaskByScheduler(&right_queue,
-                          createTaskWithPriorityAndDeadline(5, "R2", PATROL, RIGHT_SIDE, 2, 1, 3),
-                          scheduler_type);
+    /*
+     * Insertamos los barcos en las colas.
+     *
+     * Importante:
+     * Estamos metiendo punteros a ShipTask reales.
+     */
+    enqueue(&left_queue, &ship1);
+    enqueue(&left_queue, &ship2);
 
-    insertTaskByScheduler(&right_queue,
-                          createTaskWithPriorityAndDeadline(6, "R3", FISHING, RIGHT_SIDE, 4, 2, 5),
-                          scheduler_type);
+    enqueue(&right_queue, &ship3);
+    enqueue(&right_queue, &ship4);
 
-    printf("\nEstado inicial de las colas:\n");
-    printQueue(&left_queue);
-    printQueue(&right_queue);
+    /*
+     * Creamos la task del calendarizador.
+     *
+     * Esta task sera la que despierte a los barcos segun RR.
+     */
+    BaseType_t result = xTaskCreatePinnedToCore(
+        schedulerTask,
+        "SchedulerTask",
+        4096,
+        NULL,
+        2,
+        NULL,
+        tskNO_AFFINITY
+    );
 
-    runSchedulerTwoQueues(scheduler_type, &left_queue, &right_queue, quantum);
+    if (result != pdPASS) {
+        printf("[ERROR] No se pudo crear la task del calendarizador.\n");
+        return;
+    }
 
-    destroyQueue(&left_queue);
-    destroyQueue(&right_queue);
-
-    return 0;
+    printf("[MAIN] Calendarizador creado correctamente.\n");
 }

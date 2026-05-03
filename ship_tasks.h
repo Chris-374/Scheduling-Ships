@@ -25,21 +25,21 @@ typedef enum {
 } ShipState;
 
 typedef struct {
-    int id;
-    char name[NAME_SIZE];
+    int id; // ID del barco/proceso
+    char name[NAME_SIZE]; //Nombre del proceso (string)
 
-    ShipType type;
-    Side side;
+    ShipType type; //Tipo de barco
+    Side side; //Lado del canal en el que esta el barco
 
-    int burst_time;
-    int remaining_time;
+    int burst_time; //Tiempo que le toma al barco terminar
+    int remaining_time; // Tiempo restante
 
-    int priority;
-    int deadline;
+    int priority; //Num de prioridad
+    int deadline; //Deadline del proceso 
 
-    ShipState state;
+    ShipState state; //Estado del barco: Espera, corriendo o terminado
 
-    TaskHandle_t handle;
+    TaskHandle_t handle; // Puntero al task real en FreeRTOS
 } ShipTask;
 
 int createShipTask(

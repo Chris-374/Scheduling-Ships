@@ -1,7 +1,9 @@
 CC=gcc
 CFLAGS=-Wall -Wextra -std=c11
 TARGET=scheduling_ships
-SRCS=main.c scheduler.c scheduler_rr.c scheduler_priority.c scheduler_sjf.c scheduler_strn.c scheduler_fcfs.c scheduler_edf.c scheduler_selector.c
+
+# Aquí es donde añades canal.c al final de la lista:
+SRCS=main.c scheduler.c scheduler_rr.c scheduler_priority.c scheduler_sjf.c scheduler_strn.c scheduler_fcfs.c scheduler_edf.c scheduler_selector.c canal.c
 
 all: $(TARGET)
 

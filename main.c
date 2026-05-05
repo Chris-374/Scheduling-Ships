@@ -9,6 +9,7 @@
 #include "scheduler_priority_freertos.h"
 #include "scheduler_sjf_freertos.h"
 #include "scheduler_strn_freertos.h"
+#include "scheduler_fcfs_freertos.h"
 
 /*
  * Barcos reales.
@@ -46,7 +47,8 @@ typedef enum {
     SCHEDULER_RR = 0,
     SCHEDULER_PRIORITY = 1,
     SCHEDULER_SJF = 2,
-    SCHEDULER_STRN = 3
+    SCHEDULER_STRN = 3,
+    SCHEDULER_FCFS = 4
 } SchedulerType;
 
 /*
@@ -56,8 +58,9 @@ typedef enum {
  * SCHEDULER_PRIORITY
  * SCHEDULER_SJF
  * SCHEDULER_STRN
+ * SCHEDULER_FCFS
  */
-#define SELECTED_SCHEDULER SCHEDULER_STRN
+#define SELECTED_SCHEDULER SCHEDULER_FCFS
 
 /*
  * Esta es la task del calendarizador.
@@ -105,6 +108,15 @@ void schedulerTask(void *pvParameters) {
             printf("\n[SCHEDULER] Calendarizador seleccionado: STRN\n");
 
             runSTRNFreeRTOSTwoQueues(
+                &left_queue,
+                &right_queue
+            );
+            break;
+
+        case SCHEDULER_FCFS:
+            printf("\n[SCHEDULER] Calendarizador seleccionado: FCFS\n");
+
+            runFCFSFreeRTOSTwoQueues(
                 &left_queue,
                 &right_queue
             );
@@ -163,6 +175,9 @@ void app_main(void) {
      *
      * Para STRN:
      * menor tiempo restante = corre primero.
+     *
+     * Para FCFS:
+     * primero que entra a la cola = primero que corre.
      */
     createShipTask(
         &ship1,
@@ -215,12 +230,14 @@ void app_main(void) {
      * Estamos metiendo punteros a ShipTask reales.
      *
      * Cola izquierda:
-     * - L1_Normal, tiempo 5, prioridad 4
-     * - L2_Patrulla, tiempo 3, prioridad 1
+     * - L1_Normal entra primero
+     * - L2_Patrulla entra segundo
      *
      * Cola derecha:
-     * - R1_Pesquera, tiempo 4, prioridad 2
-     * - R2_Normal, tiempo 6, prioridad 5
+     * - R1_Pesquera entra primero
+     * - R2_Normal entra segundo
+     *
+     * Para FCFS este orden importa directamente.
      */
     enqueue(&left_queue, &ship1);
     enqueue(&left_queue, &ship2);

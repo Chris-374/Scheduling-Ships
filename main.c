@@ -8,6 +8,7 @@
 #include "scheduler_rr_freertos.h"
 #include "scheduler_priority_freertos.h"
 #include "scheduler_sjf_freertos.h"
+#include "scheduler_strn_freertos.h"
 
 /*
  * Barcos reales.
@@ -44,7 +45,8 @@ static ReadyQueue right_queue;
 typedef enum {
     SCHEDULER_RR = 0,
     SCHEDULER_PRIORITY = 1,
-    SCHEDULER_SJF = 2
+    SCHEDULER_SJF = 2,
+    SCHEDULER_STRN = 3
 } SchedulerType;
 
 /*
@@ -53,8 +55,9 @@ typedef enum {
  * SCHEDULER_RR
  * SCHEDULER_PRIORITY
  * SCHEDULER_SJF
+ * SCHEDULER_STRN
  */
-#define SELECTED_SCHEDULER SCHEDULER_SJF
+#define SELECTED_SCHEDULER SCHEDULER_STRN
 
 /*
  * Esta es la task del calendarizador.
@@ -93,6 +96,15 @@ void schedulerTask(void *pvParameters) {
             printf("\n[SCHEDULER] Calendarizador seleccionado: SJF\n");
 
             runSJFFreeRTOSTwoQueues(
+                &left_queue,
+                &right_queue
+            );
+            break;
+
+        case SCHEDULER_STRN:
+            printf("\n[SCHEDULER] Calendarizador seleccionado: STRN\n");
+
+            runSTRNFreeRTOSTwoQueues(
                 &left_queue,
                 &right_queue
             );
@@ -148,6 +160,9 @@ void app_main(void) {
      *
      * Para SJF:
      * menor tiempo_total = corre primero.
+     *
+     * Para STRN:
+     * menor tiempo restante = corre primero.
      */
     createShipTask(
         &ship1,

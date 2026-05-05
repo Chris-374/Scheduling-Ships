@@ -160,8 +160,8 @@ void app_main(void) {
     /*
      * Inicializamos las dos colas de listos.
      */
-    initQueue(&left_queue, "Cola izquierda", MAX_QUEUE_SIZE);
-    initQueue(&right_queue, "Cola derecha", MAX_QUEUE_SIZE);
+    initQueue(&left_queue, "Cola izquierda");
+    initQueue(&right_queue, "Cola derecha");
 
     /*
      * Creamos barcos como tasks reales de FreeRTOS.

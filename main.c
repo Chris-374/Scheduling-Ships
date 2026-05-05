@@ -72,84 +72,54 @@ typedef enum {
  * Su trabajo es ejecutar el algoritmo seleccionado sobre las dos colas.
  */
 void schedulerTask(void *pvParameters) {
-    // int quantum = 2; // Se comenta porque no se usará mientras probamos el canal
+    int quantum = 2;
 
     printf("\n[SCHEDULER] Iniciando calendarizador\n");
 
     printQueue(&left_queue);
     printQueue(&right_queue);
 
-    /* 
-     * SECCIÓN COMENTADA TEMPORALMENTE:
-     * Dejamos intacto el código original, pero comentado para que no vacíe
-     * las colas antes de que el puente pueda actuar.
-     */
-    /*
+    /* Variable para definir si el barco cruza completo (0) o por partes (quantum) */
+    int max_ticks = 0; 
+
     switch (SELECTED_SCHEDULER) {
         case SCHEDULER_RR:
             printf("\n[SCHEDULER] Calendarizador seleccionado: Round Robin\n");
-
-            runRoundRobinFreeRTOSTwoQueues(
-                &left_queue,
-                &right_queue,
-                quantum
-            );
+            max_ticks = quantum;
             break;
 
         case SCHEDULER_PRIORITY:
             printf("\n[SCHEDULER] Calendarizador seleccionado: Prioridad\n");
-
-            runPriorityFreeRTOSTwoQueues(
-                &left_queue,
-                &right_queue
-            );
+            max_ticks = 0;
             break;
 
         case SCHEDULER_SJF:
             printf("\n[SCHEDULER] Calendarizador seleccionado: SJF\n");
-
-            runSJFFreeRTOSTwoQueues(
-                &left_queue,
-                &right_queue
-            );
+            max_ticks = 0;
             break;
 
         case SCHEDULER_STRN:
             printf("\n[SCHEDULER] Calendarizador seleccionado: STRN\n");
-
-            runSTRNFreeRTOSTwoQueues(
-                &left_queue,
-                &right_queue
-            );
+            max_ticks = 1;
             break;
 
         case SCHEDULER_FCFS:
             printf("\n[SCHEDULER] Calendarizador seleccionado: FCFS\n");
-
-            runFCFSFreeRTOSTwoQueues(
-                &left_queue,
-                &right_queue
-            );
+            max_ticks = 0;
             break;
 
         case SCHEDULER_EDF:
             printf("\n[SCHEDULER] Calendarizador seleccionado: EDF\n");
-
-            runEDFFreeRTOSTwoQueues(
-                &left_queue,
-                &right_queue
-            );
+            max_ticks = 0;
             break;
 
         default:
             printf("\n[ERROR] Calendarizador desconocido.\n");
             break;
     }
-    */
 
-    // LLAMADA A SU CONTROL DE FLUJO:
-    printf("\n[PRUEBA] Ejecutando control del Canal (Equidad W=2)\n");
-    run_channel_equity(&left_queue, &right_queue, 2);
+    /* Llamada al mecanismo del puente para que ejecute el flujo físico */
+    run_channel_equity(&left_queue, &right_queue, 2, max_ticks);
 
     printf("\n[SCHEDULER] Calendarizacion terminada.\n");
 

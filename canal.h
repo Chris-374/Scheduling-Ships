@@ -3,7 +3,10 @@
 
 #include "ready_queue.h"
 
-/* Declaración de la función de control de flujo por Equidad */
-void run_channel_equity(ReadyQueue *left_queue, ReadyQueue *right_queue, int W);
+/* 
+ * W: Cantidad de barcos que pasan por lado.
+ * max_ticks: Cuánto tiempo cruza un barco (0 = cruce completo, N = quantum de RR o STRN)
+ */
+void run_channel_equity(ReadyQueue *left_queue, ReadyQueue *right_queue, int W, int max_ticks);
 
 #endif

@@ -11,6 +11,7 @@
 #include "scheduler_strn_freertos.h"
 #include "scheduler_fcfs_freertos.h"
 #include "scheduler_edf_freertos.h"
+#include "lcd_display.h"
 
 /*
  * Barcos reales.
@@ -63,7 +64,7 @@ typedef enum {
  * SCHEDULER_FCFS
  * SCHEDULER_EDF
  */
-#define SELECTED_SCHEDULER SCHEDULER_EDF
+#define SELECTED_SCHEDULER SCHEDULER_RR
 
 /*
  * Esta es la task del calendarizador.
@@ -163,6 +164,8 @@ void app_main(void) {
     initQueue(&left_queue, "Cola izquierda");
     initQueue(&right_queue, "Cola derecha");
 
+    lcd_display_init();
+
     /*
      * Creamos barcos como tasks reales de FreeRTOS.
      *
@@ -260,6 +263,9 @@ void app_main(void) {
     enqueue(&right_queue, &ship3);
     enqueue(&right_queue, &ship4);
 
+
+    lcd_display_update(&left_queue, &right_queue, NULL);
+    
     /*
      * Creamos la task del calendarizador.
      *

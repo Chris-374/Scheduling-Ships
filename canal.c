@@ -3,7 +3,8 @@
 #include "freertos/task.h"
 #include "ready_queue.h"
 #include "ship_tasks.h"
-#include "canal.h" // Incluimos el header que acabamos de crear
+#include "canal.h"
+#include "lcd_display.h" // Se añade para actualizar la pantalla física
 
 static void wait_for_ship_to_cross(ShipTask *ship) {
     if (ship == NULL) return;
@@ -30,10 +31,16 @@ void run_channel_equity(ReadyQueue *left_queue, ReadyQueue *right_queue, int W) 
         const char *side_name = (current_side == LEFT_SIDE) ? "Izquierda" : "Derecha";
 
         if (!isQueueEmpty(active_queue) && ships_passed < W) {
+            
             if (dequeue(active_queue, &current_ship)) {
                 printf("\n[CANAL] %s entra al canal desde la %s.\n", current_ship->name, side_name);
+                
+                // Actualizamos la pantalla LCD mostrando el barco que cruza
+                lcd_display_update(left_queue, right_queue, current_ship);
+
                 wakeShipTask(current_ship);
                 wait_for_ship_to_cross(current_ship);
+                
                 ships_passed++;
             }
         } else {
@@ -44,5 +51,8 @@ void run_channel_equity(ReadyQueue *left_queue, ReadyQueue *right_queue, int W) 
             vTaskDelay(pdMS_TO_TICKS(100)); 
         }
     }
+    
+    // Al terminar, limpiamos el barco del canal en la pantalla
+    lcd_display_update(left_queue, right_queue, NULL);
     printf("\n[CANAL] Todas las colas están vacías. El puente está inactivo.\n");
 }

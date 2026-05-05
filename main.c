@@ -2,7 +2,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-
+#include "canal.h"
 #include "ship_tasks.h"
 #include "ready_queue.h"
 #include "scheduler_rr_freertos.h"
@@ -72,13 +72,19 @@ typedef enum {
  * Su trabajo es ejecutar el algoritmo seleccionado sobre las dos colas.
  */
 void schedulerTask(void *pvParameters) {
-    int quantum = 2;
+    // int quantum = 2; // Se comenta porque no se usará mientras probamos el canal
 
     printf("\n[SCHEDULER] Iniciando calendarizador\n");
 
     printQueue(&left_queue);
     printQueue(&right_queue);
 
+    /* 
+     * SECCIÓN COMENTADA TEMPORALMENTE:
+     * Dejamos intacto el código original, pero comentado para que no vacíe
+     * las colas antes de que el puente pueda actuar.
+     */
+    /*
     switch (SELECTED_SCHEDULER) {
         case SCHEDULER_RR:
             printf("\n[SCHEDULER] Calendarizador seleccionado: Round Robin\n");
@@ -139,6 +145,11 @@ void schedulerTask(void *pvParameters) {
             printf("\n[ERROR] Calendarizador desconocido.\n");
             break;
     }
+    */
+
+    // LLAMADA A SU CONTROL DE FLUJO:
+    printf("\n[PRUEBA] Ejecutando control del Canal (Equidad W=2)\n");
+    run_channel_equity(&left_queue, &right_queue, 2);
 
     printf("\n[SCHEDULER] Calendarizacion terminada.\n");
 

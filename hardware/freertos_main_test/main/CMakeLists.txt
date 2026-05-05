@@ -1,9 +1,15 @@
 idf_component_register(
     SRCS
-        "main.c"
+        "../../../main.c"
         "../../../ship_tasks.c"
         "../../../ready_queue.c"
         "../../../scheduler_rr_freertos.c"
+        "../../../scheduler_priority_freertos.c"
+        "../../../scheduler_sjf_freertos.c"
+        "../../../scheduler_strn_freertos.c"
+        "../../../scheduler_fcfs_freertos.c"
+        "../../../scheduler_edf_freertos.c"
+        "../../../lcd_display.c"
     INCLUDE_DIRS
         "."
         "../../.."

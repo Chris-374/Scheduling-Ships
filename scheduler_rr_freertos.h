@@ -14,8 +14,12 @@
  * Por eso el calendarizador no modifica directamente el tiempo restante,
  * sino que despierta la task del barco usando wakeShipTask().
  */
-void roundRobinFreeRTOSStep(ReadyQueue *queue, int quantum);
-
+void roundRobinFreeRTOSStep(
+    ReadyQueue *queue,
+    ReadyQueue *left_queue,
+    ReadyQueue *right_queue,
+    int quantum
+);
 /*
  * Ejecuta una simulacion RR usando dos colas:
  * - izquierda

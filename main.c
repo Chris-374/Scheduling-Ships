@@ -7,6 +7,7 @@
 #include "ready_queue.h"
 #include "scheduler_rr_freertos.h"
 #include "scheduler_priority_freertos.h"
+#include "scheduler_sjf_freertos.h"
 
 /*
  * Barcos reales.
@@ -42,7 +43,8 @@ static ReadyQueue right_queue;
  */
 typedef enum {
     SCHEDULER_RR = 0,
-    SCHEDULER_PRIORITY = 1
+    SCHEDULER_PRIORITY = 1,
+    SCHEDULER_SJF = 2
 } SchedulerType;
 
 /*
@@ -50,8 +52,9 @@ typedef enum {
  *
  * SCHEDULER_RR
  * SCHEDULER_PRIORITY
+ * SCHEDULER_SJF
  */
-#define SELECTED_SCHEDULER SCHEDULER_PRIORITY
+#define SELECTED_SCHEDULER SCHEDULER_SJF
 
 /*
  * Esta es la task del calendarizador.
@@ -81,6 +84,15 @@ void schedulerTask(void *pvParameters) {
             printf("\n[SCHEDULER] Calendarizador seleccionado: Prioridad\n");
 
             runPriorityFreeRTOSTwoQueues(
+                &left_queue,
+                &right_queue
+            );
+            break;
+
+        case SCHEDULER_SJF:
+            printf("\n[SCHEDULER] Calendarizador seleccionado: SJF\n");
+
+            runSJFFreeRTOSTwoQueues(
                 &left_queue,
                 &right_queue
             );
@@ -131,9 +143,11 @@ void app_main(void) {
      *     deadline
      * );
      *
-     * Nota:
-     * Para prioridad usamos esta regla:
+     * Para prioridad:
      * menor numero = mayor prioridad.
+     *
+     * Para SJF:
+     * menor tiempo_total = corre primero.
      */
     createShipTask(
         &ship1,
@@ -186,12 +200,12 @@ void app_main(void) {
      * Estamos metiendo punteros a ShipTask reales.
      *
      * Cola izquierda:
-     * - L1_Normal, prioridad 4
-     * - L2_Patrulla, prioridad 1
+     * - L1_Normal, tiempo 5, prioridad 4
+     * - L2_Patrulla, tiempo 3, prioridad 1
      *
      * Cola derecha:
-     * - R1_Pesquera, prioridad 2
-     * - R2_Normal, prioridad 5
+     * - R1_Pesquera, tiempo 4, prioridad 2
+     * - R2_Normal, tiempo 6, prioridad 5
      */
     enqueue(&left_queue, &ship1);
     enqueue(&left_queue, &ship2);

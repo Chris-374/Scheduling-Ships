@@ -10,7 +10,7 @@
  * Esta cola representa los barcos que estan esperando
  * en un lado del canal.
  */
-void initQueue(ReadyQueue *queue, const char *name, int capacity) {
+void initQueue(ReadyQueue *queue, const char *name) {
     if (queue == NULL) {
         return;
     }
@@ -19,7 +19,6 @@ void initQueue(ReadyQueue *queue, const char *name, int capacity) {
     queue->rear = NULL;
 
     queue->size = 0;
-    queue->capacity = capacity;
 
     strncpy(queue->name, name, NAME_SIZE - 1);
     queue->name[NAME_SIZE - 1] = '\0';
@@ -48,13 +47,6 @@ int isQueueEmpty(const ReadyQueue *queue) {
  */
 int enqueue(ReadyQueue *queue, ShipTask *ship) {
     if (queue == NULL || ship == NULL) {
-        return 0;
-    }
-
-    if (queue->size >= queue->capacity) {
-        printf("[ERROR] La %s esta llena. No se pudo agregar el barco %s.\n",
-               queue->name,
-               ship->name);
         return 0;
     }
 
@@ -142,10 +134,9 @@ void printQueue(const ReadyQueue *queue) {
         return;
     }
 
-    printf("\n%s [%d/%d]: ",
+    printf("\n%s [%d barcos]: ",
            queue->name,
-           queue->size,
-           queue->capacity);
+           queue->size);
 
     if (queue->front == NULL) {
         printf("vacia\n");

@@ -4,12 +4,6 @@
 #include "ship_tasks.h"
 
 /*
- * Cantidad maxima de barcos permitidos en cada cola.
- * Segun el proyecto, cada lado del canal puede tener maximo 4 barcos.
- */
-#define MAX_QUEUE_SIZE 4
-
-/*
  * Nodo de la cola.
  *
  * Cada nodo guarda un puntero a un ShipTask.
@@ -35,18 +29,18 @@ typedef struct ReadyNode {
  * size:
  *   cantidad actual de barcos en la cola.
  *
- * capacity:
- *   capacidad maxima permitida.
- *
  * name:
  *   nombre de la cola, por ejemplo "Cola izquierda".
+ *
+ * Nota:
+ *   Esta cola no tiene limite fijo de barcos.
+ *   Crece dinamicamente usando malloc en cada enqueue().
  */
 typedef struct {
     ReadyNode *front;
     ReadyNode *rear;
 
     int size;
-    int capacity;
 
     char name[NAME_SIZE];
 } ReadyQueue;
@@ -54,7 +48,7 @@ typedef struct {
 /*
  * Inicializa una cola de listos.
  */
-void initQueue(ReadyQueue *queue, const char *name, int capacity);
+void initQueue(ReadyQueue *queue, const char *name);
 
 /*
  * Revisa si la cola esta vacia.

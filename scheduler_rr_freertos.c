@@ -6,6 +6,8 @@
 #include "scheduler_rr_freertos.h"
 #include "ship_tasks.h"
 
+#include "lcd_display.h"
+
 /*
  * Espera un poco a que la task del barco termine su unidad de ejecucion.
  *
@@ -39,11 +41,17 @@ static void waitForShipExecution(ShipTask *ship) {
 /*
  * Ejecuta un paso de Round Robin sobre una cola de barcos reales.
  */
-void roundRobinFreeRTOSStep(ReadyQueue *queue, int quantum) {
+void roundRobinFreeRTOSStep(
+    ReadyQueue *queue,
+    ReadyQueue *left_queue,
+    ReadyQueue *right_queue,
+    int quantum) {
     if (queue == NULL) {
         return;
     }
 
+
+    
     if (quantum <= 0) {
         printf("[ERROR] El quantum debe ser mayor que cero.\n");
         return;
@@ -66,6 +74,8 @@ void roundRobinFreeRTOSStep(ReadyQueue *queue, int quantum) {
     if (current_ship == NULL) {
         return;
     }
+
+    lcd_display_update(left_queue, right_queue, current_ship);
 
     printf("\n[RR] Turno para %s desde la %s\n",
            current_ship->name,
@@ -110,6 +120,8 @@ void roundRobinFreeRTOSStep(ReadyQueue *queue, int quantum) {
         printf("[RR] %s ya termino. Sale de la cola.\n",
                current_ship->name);
     }
+
+    lcd_display_update(left_queue, right_queue, NULL);
 }
 
 /*
@@ -133,16 +145,17 @@ void runRoundRobinFreeRTOSTwoQueues(
 
     printf("\n========== RR CON TASKS REALES DE FREERTOS ==========\n");
     printf("Quantum: %d\n", quantum);
+    lcd_display_update(left_queue, right_queue, NULL);
 
     while (!isQueueEmpty(left_queue) || !isQueueEmpty(right_queue)) {
         printf("\n---------- Ciclo %d ----------\n", cycle);
 
         if (!isQueueEmpty(left_queue)) {
-            roundRobinFreeRTOSStep(left_queue, quantum);
+            roundRobinFreeRTOSStep(left_queue, left_queue, right_queue, quantum);
         }
 
         if (!isQueueEmpty(right_queue)) {
-            roundRobinFreeRTOSStep(right_queue, quantum);
+            roundRobinFreeRTOSStep(right_queue, left_queue, right_queue, quantum);
         }
 
         printQueue(left_queue);
@@ -157,4 +170,5 @@ void runRoundRobinFreeRTOSTwoQueues(
     }
 
     printf("\n[RR] Todas las colas quedaron vacias.\n");
+    
 }

@@ -6,11 +6,12 @@
 #include "ship_tasks.h"
 #include "ready_queue.h"
 #include "scheduler_rr_freertos.h"
+#include "scheduler_priority_freertos.h"
 
 /*
  * Barcos reales.
  *
- * Por ahora son globales para que sigan existiendo durante
+ * Por ahora son globales/static para que sigan existiendo durante
  * toda la ejecucion del programa.
  */
 static ShipTask ship1;
@@ -29,23 +30,66 @@ static ReadyQueue left_queue;
 static ReadyQueue right_queue;
 
 /*
+ * Calendarizadores disponibles.
+ *
+ * El enunciado pide que el calendarizador sea un parametro
+ * de cada ejecucion. Por ahora lo escogemos con un define.
+ *
+ * Mas adelante esto puede venir de:
+ * - archivo de configuracion
+ * - menu por consola
+ * - boton/interfaz
+ */
+typedef enum {
+    SCHEDULER_RR = 0,
+    SCHEDULER_PRIORITY = 1
+} SchedulerType;
+
+/*
+ * Cambiar aqui para probar:
+ *
+ * SCHEDULER_RR
+ * SCHEDULER_PRIORITY
+ */
+#define SELECTED_SCHEDULER SCHEDULER_PRIORITY
+
+/*
  * Esta es la task del calendarizador.
  *
- * Su trabajo es ejecutar el algoritmo RR sobre las dos colas.
+ * Su trabajo es ejecutar el algoritmo seleccionado sobre las dos colas.
  */
 void schedulerTask(void *pvParameters) {
     int quantum = 2;
 
-    printf("\n[SCHEDULER] Iniciando calendarizador RR\n");
+    printf("\n[SCHEDULER] Iniciando calendarizador\n");
 
     printQueue(&left_queue);
     printQueue(&right_queue);
 
-    runRoundRobinFreeRTOSTwoQueues(
-        &left_queue,
-        &right_queue,
-        quantum
-    );
+    switch (SELECTED_SCHEDULER) {
+        case SCHEDULER_RR:
+            printf("\n[SCHEDULER] Calendarizador seleccionado: Round Robin\n");
+
+            runRoundRobinFreeRTOSTwoQueues(
+                &left_queue,
+                &right_queue,
+                quantum
+            );
+            break;
+
+        case SCHEDULER_PRIORITY:
+            printf("\n[SCHEDULER] Calendarizador seleccionado: Prioridad\n");
+
+            runPriorityFreeRTOSTwoQueues(
+                &left_queue,
+                &right_queue
+            );
+            break;
+
+        default:
+            printf("\n[ERROR] Calendarizador desconocido.\n");
+            break;
+    }
 
     printf("\n[SCHEDULER] Calendarizacion terminada.\n");
 
@@ -75,6 +119,7 @@ void app_main(void) {
      * Creamos barcos como tasks reales de FreeRTOS.
      *
      * Parametros:
+     *
      * createShipTask(
      *     &barco,
      *     id,
@@ -85,6 +130,10 @@ void app_main(void) {
      *     prioridad,
      *     deadline
      * );
+     *
+     * Nota:
+     * Para prioridad usamos esta regla:
+     * menor numero = mayor prioridad.
      */
     createShipTask(
         &ship1,
@@ -135,6 +184,14 @@ void app_main(void) {
      *
      * Importante:
      * Estamos metiendo punteros a ShipTask reales.
+     *
+     * Cola izquierda:
+     * - L1_Normal, prioridad 4
+     * - L2_Patrulla, prioridad 1
+     *
+     * Cola derecha:
+     * - R1_Pesquera, prioridad 2
+     * - R2_Normal, prioridad 5
      */
     enqueue(&left_queue, &ship1);
     enqueue(&left_queue, &ship2);
@@ -145,7 +202,8 @@ void app_main(void) {
     /*
      * Creamos la task del calendarizador.
      *
-     * Esta task sera la que despierte a los barcos segun RR.
+     * Esta task sera la que despierte a los barcos segun
+     * el algoritmo seleccionado.
      */
     BaseType_t result = xTaskCreatePinnedToCore(
         schedulerTask,

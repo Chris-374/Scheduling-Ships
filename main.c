@@ -10,6 +10,7 @@
 #include "scheduler_sjf_freertos.h"
 #include "scheduler_strn_freertos.h"
 #include "scheduler_fcfs_freertos.h"
+#include "scheduler_edf_freertos.h"
 
 /*
  * Barcos reales.
@@ -48,7 +49,8 @@ typedef enum {
     SCHEDULER_PRIORITY = 1,
     SCHEDULER_SJF = 2,
     SCHEDULER_STRN = 3,
-    SCHEDULER_FCFS = 4
+    SCHEDULER_FCFS = 4,
+    SCHEDULER_EDF = 5
 } SchedulerType;
 
 /*
@@ -59,8 +61,9 @@ typedef enum {
  * SCHEDULER_SJF
  * SCHEDULER_STRN
  * SCHEDULER_FCFS
+ * SCHEDULER_EDF
  */
-#define SELECTED_SCHEDULER SCHEDULER_FCFS
+#define SELECTED_SCHEDULER SCHEDULER_EDF
 
 /*
  * Esta es la task del calendarizador.
@@ -122,6 +125,15 @@ void schedulerTask(void *pvParameters) {
             );
             break;
 
+        case SCHEDULER_EDF:
+            printf("\n[SCHEDULER] Calendarizador seleccionado: EDF\n");
+
+            runEDFFreeRTOSTwoQueues(
+                &left_queue,
+                &right_queue
+            );
+            break;
+
         default:
             printf("\n[ERROR] Calendarizador desconocido.\n");
             break;
@@ -178,6 +190,9 @@ void app_main(void) {
      *
      * Para FCFS:
      * primero que entra a la cola = primero que corre.
+     *
+     * Para EDF:
+     * menor deadline = corre primero.
      */
     createShipTask(
         &ship1,
@@ -230,14 +245,14 @@ void app_main(void) {
      * Estamos metiendo punteros a ShipTask reales.
      *
      * Cola izquierda:
-     * - L1_Normal entra primero
-     * - L2_Patrulla entra segundo
+     * - L1_Normal, deadline 12
+     * - L2_Patrulla, deadline 5
      *
      * Cola derecha:
-     * - R1_Pesquera entra primero
-     * - R2_Normal entra segundo
+     * - R1_Pesquera, deadline 8
+     * - R2_Normal, deadline 15
      *
-     * Para FCFS este orden importa directamente.
+     * Para EDF este valor importa directamente.
      */
     enqueue(&left_queue, &ship1);
     enqueue(&left_queue, &ship2);

@@ -1,0 +1,11 @@
+idf_component_register(
+    SRCS
+        "../../../main.c"
+        "../../../canal.c"
+        "../../../ship_tasks.c"
+        "../../../ready_queue.c"
+        "../../../lcd_display.c"
+    INCLUDE_DIRS
+        "."
+        "../../.."
+)

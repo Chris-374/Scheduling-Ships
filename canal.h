@@ -3,9 +3,7 @@
 
 #include "ready_queue.h"
 
-/* 
- * Enumerador de calendarizadores (Movido desde main.c)
- */
+/* Enumerador de calendarizadores */
 typedef enum {
     SCHEDULER_RR = 0,
     SCHEDULER_PRIORITY = 1,
@@ -15,11 +13,17 @@ typedef enum {
     SCHEDULER_EDF = 5
 } SchedulerType;
 
+/* NUEVO: Enumerador para elegir el tipo de control del canal */
+typedef enum {
+    CHANNEL_EQUITY = 0,
+    CHANNEL_SIGN = 1,
+    CHANNEL_TICO = 2
+} ChannelType;
+
 /* 
- * W: Cantidad de barcos que pasan por lado.
- * max_ticks: Cuánto tiempo cruza un barco (0 = cruce completo, N = quantum de RR o STRN)
- * active_scheduler: Para saber cómo reencolar si el barco es expropiado.
+ * Función unificada para correr cualquier política de canal.
+ * param: Representa 'W' si es Equidad, o el 'tiempo del temporizador' si es Letrero.
  */
-void run_channel_equity(ReadyQueue *left_queue, ReadyQueue *right_queue, int W, int max_ticks, SchedulerType active_scheduler);
+void run_channel_flow(ChannelType channel_type, ReadyQueue *left_queue, ReadyQueue *right_queue, int param, int max_ticks, SchedulerType active_scheduler);
 
 #endif

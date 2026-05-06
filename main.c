@@ -57,7 +57,11 @@ static ReadyQueue right_queue;
  * SCHEDULER_EDF
  */
 #define SELECTED_SCHEDULER SCHEDULER_RR
+/* Opciones de Canal: CHANNEL_EQUITY, CHANNEL_SIGN, CHANNEL_TICO */
+#define SELECTED_CHANNEL CHANNEL_SIGN
 
+/* Si es Equidad, esto es W. Si es Letrero, es el Tiempo */
+#define CHANNEL_PARAM 4
 /*
  * Esta es la task del calendarizador.
  *
@@ -116,7 +120,8 @@ void schedulerTask(void *pvParameters) {
     }
 
     /* LLAMADA AL CANAL CON LOS 5 PARÁMETROS */
-    run_channel_equity(&left_queue, &right_queue, 2, max_ticks, SELECTED_SCHEDULER);
+    /* Ponga esto: Función maestra que recibe ambas configuraciones */
+    run_channel_flow(SELECTED_CHANNEL, &left_queue, &right_queue, CHANNEL_PARAM, max_ticks, SELECTED_SCHEDULER);
 
     printf("\n[SCHEDULER] Calendarizacion terminada.\n");
 

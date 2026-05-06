@@ -13,22 +13,14 @@ static void wait_one_tick(ShipTask *ship) {
     vTaskDelay(pdMS_TO_TICKS(50)); 
 }
 
-/*
- * NUEVO: Función para devolver el barco a la fila de forma ordenada
- * dependiendo del algoritmo expropiativo que esté corriendo.
- */
+/* Función para devolver el barco a la fila ordenadamente (Soporta STRN) */
 static void reenqueue_ship(ReadyQueue *queue, ShipTask *ship, SchedulerType scheduler) {
     if (scheduler == SCHEDULER_STRN) {
-        // Lógica de inserción ordenada para STRN (menor remaining_time primero)
         ReadyNode *new_node = (ReadyNode *)malloc(sizeof(ReadyNode));
-        if (new_node == NULL) {
-            printf("[ERROR] No se pudo asignar memoria para reencolar %s\n", ship->name);
-            return;
-        }
+        if (new_node == NULL) return;
         new_node->ship = ship;
         new_node->next = NULL;
 
-        // Si la cola está vacía
         if (queue->front == NULL) {
             queue->front = new_node;
             queue->rear = new_node;
@@ -36,7 +28,6 @@ static void reenqueue_ship(ReadyQueue *queue, ShipTask *ship, SchedulerType sche
             return;
         }
 
-        // Si tiene menor tiempo restante que el primero
         if (ship->remaining_time < queue->front->ship->remaining_time) {
             new_node->next = queue->front;
             queue->front = new_node;
@@ -44,7 +35,6 @@ static void reenqueue_ship(ReadyQueue *queue, ShipTask *ship, SchedulerType sche
             return;
         }
 
-        // Buscar la posición correcta para mantener el orden
         ReadyNode *current = queue->front;
         while (current->next != NULL && current->next->ship->remaining_time <= ship->remaining_time) {
             current = current->next;
@@ -53,23 +43,18 @@ static void reenqueue_ship(ReadyQueue *queue, ShipTask *ship, SchedulerType sche
         new_node->next = current->next;
         current->next = new_node;
 
-        if (new_node->next == NULL) {
-            queue->rear = new_node;
-        }
+        if (new_node->next == NULL) queue->rear = new_node;
         queue->size++;
         
     } else {
-        // RR u otros métodos usan la inserción normal al final de la fila
         enqueue(queue, ship);
     }
 }
 
-void run_channel_equity(ReadyQueue *left_queue, ReadyQueue *right_queue, int W, int max_ticks, SchedulerType active_scheduler) {
-    if (W <= 0) {
-        printf("[ERROR CANAL] El parámetro W debe ser mayor que 0.\n");
-        return;
-    }
-
+/* =========================================
+ * POLÍTICA 1: EQUIDAD (W)
+ * ========================================= */
+static void run_equity(ReadyQueue *left_queue, ReadyQueue *right_queue, int W, int max_ticks, SchedulerType active_scheduler) {
     int current_side = LEFT_SIDE;
     int ships_passed = 0;
     ShipTask *current_ship = NULL;
@@ -81,43 +66,116 @@ void run_channel_equity(ReadyQueue *left_queue, ReadyQueue *right_queue, int W, 
         const char *side_name = (current_side == LEFT_SIDE) ? "Izquierda" : "Derecha";
 
         if (!isQueueEmpty(active_queue) && ships_passed < W) {
-            
             if (dequeue(active_queue, &current_ship)) {
                 printf("\n[CANAL] %s entra al canal desde la %s.\n", current_ship->name, side_name);
                 lcd_display_update(left_queue, right_queue, current_ship);
 
                 if (max_ticks == 0) {
-                    // REGLA NO EXPROPIATIVA
                     while (!isShipFinished(current_ship)) {
                         wakeShipTask(current_ship);
                         wait_one_tick(current_ship);
                     }
                 } else {
-                    // REGLA EXPROPIATIVA
                     for (int i = 0; i < max_ticks; i++) {
                         if (isShipFinished(current_ship)) break;
                         wakeShipTask(current_ship);
                         wait_one_tick(current_ship);
                     }
-                    
-                    // MODIFICADO: Reencolado dinámico basado en el algoritmo
                     if (!isShipFinished(current_ship)) {
-                        printf("[CALENDARIZADOR] %s agotó su tiempo. Vuelve a la cola de forma ordenada.\n", current_ship->name);
+                        printf("[CALENDARIZADOR] %s agotó su tiempo. Vuelve a la cola ordenada.\n", current_ship->name);
                         reenqueue_ship(active_queue, current_ship, active_scheduler); 
                     }
                 }
-                
                 ships_passed++;
             }
         } else {
             current_side = (current_side == LEFT_SIDE) ? RIGHT_SIDE : LEFT_SIDE;
             ships_passed = 0;
-            printf("\n[CANAL] Cambio de sentido. Atendiendo a la cola %s.\n", 
-                   (current_side == LEFT_SIDE) ? "Izquierda" : "Derecha");
+            printf("\n[CANAL] Cambio de sentido. Atendiendo a la cola %s.\n", (current_side == LEFT_SIDE) ? "Izquierda" : "Derecha");
             vTaskDelay(pdMS_TO_TICKS(100)); 
         }
     }
-    
+}
+
+/* =========================================
+ * NUEVA POLÍTICA 2: LETRERO (Temporizador)
+ * ========================================= */
+static void run_sign(ReadyQueue *left_queue, ReadyQueue *right_queue, int sign_duration, int max_ticks, SchedulerType active_scheduler) {
+    int current_side = LEFT_SIDE;
+    int elapsed_time = 0; // Tiempo transcurrido con el letrero actual
+    ShipTask *current_ship = NULL;
+
+    printf("\n[CANAL] Iniciando control de flujo: LETRERO (Tiempo = %d unidades)\n", sign_duration);
+
+    while (!isQueueEmpty(left_queue) || !isQueueEmpty(right_queue)) {
+        ReadyQueue *active_queue = (current_side == LEFT_SIDE) ? left_queue : right_queue;
+        const char *side_name = (current_side == LEFT_SIDE) ? "Izquierda" : "Derecha";
+
+        // Revisamos si ya es hora de cambiar el letrero
+        if (elapsed_time >= sign_duration) {
+            current_side = (current_side == LEFT_SIDE) ? RIGHT_SIDE : LEFT_SIDE;
+            elapsed_time = 0; // Reiniciamos el temporizador
+            printf("\n[CANAL] ¡Temporizador expiró! El letrero cambió hacia la %s.\n", (current_side == LEFT_SIDE) ? "Izquierda" : "Derecha");
+            continue;
+        }
+
+        if (!isQueueEmpty(active_queue)) {
+            if (dequeue(active_queue, &current_ship)) {
+                printf("\n[CANAL] %s entra al canal desde la %s.\n", current_ship->name, side_name);
+                lcd_display_update(left_queue, right_queue, current_ship);
+
+                if (max_ticks == 0) {
+                    while (!isShipFinished(current_ship)) {
+                        wakeShipTask(current_ship);
+                        wait_one_tick(current_ship);
+                        elapsed_time++; // Se cuenta el tiempo físico
+                    }
+                } else {
+                    for (int i = 0; i < max_ticks; i++) {
+                        if (isShipFinished(current_ship)) break;
+                        wakeShipTask(current_ship);
+                        wait_one_tick(current_ship);
+                        elapsed_time++; // Se cuenta el tiempo físico
+                    }
+                    if (!isShipFinished(current_ship)) {
+                        printf("[CALENDARIZADOR] %s agotó su tiempo. Vuelve a la cola ordenada.\n", current_ship->name);
+                        reenqueue_ship(active_queue, current_ship, active_scheduler); 
+                    }
+                }
+            }
+        } else {
+            // Si la cola activa está vacía, el tiempo igual debe seguir pasando
+            printf("[CANAL] La cola %s está vacía, pero su letrero sigue en verde... (esperando)\n", side_name);
+            vTaskDelay(pdMS_TO_TICKS(500)); // Simulamos 1 unidad de tiempo
+            elapsed_time++;
+        }
+    }
+}
+
+/* =========================================
+ * CONTROLADOR PRINCIPAL DEL CANAL
+ * ========================================= */
+void run_channel_flow(ChannelType channel_type, ReadyQueue *left_queue, ReadyQueue *right_queue, int param, int max_ticks, SchedulerType active_scheduler) {
+    if (param <= 0) {
+        printf("[ERROR CANAL] El parámetro de configuración debe ser mayor que 0.\n");
+        return;
+    }
+
+    switch (channel_type) {
+        case CHANNEL_EQUITY:
+            run_equity(left_queue, right_queue, param, max_ticks, active_scheduler);
+            break;
+        case CHANNEL_SIGN:
+            run_sign(left_queue, right_queue, param, max_ticks, active_scheduler);
+            break;
+        case CHANNEL_TICO:
+            printf("\n[CANAL] Algoritmo Tico aún no implementado.\n");
+            break;
+        default:
+            printf("\n[ERROR] Algoritmo de canal desconocido.\n");
+            break;
+    }
+
     lcd_display_update(left_queue, right_queue, NULL);
     printf("\n[CANAL] Todas las colas están vacías. El puente está inactivo.\n");
 }

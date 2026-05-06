@@ -9,11 +9,13 @@
 #include "lcd_display.h"
 
 /*
- * Espera un poco a que la task del barco termine su unidad de ejecucion.
+ * Espera a que la task del barco termine su unidad de ejecucion.
  *
- * Esto es necesario porque wakeShipTask() solo despierta la task.
- * La task real corre aparte, entonces el calendarizador debe darle
- * tiempo para avanzar.
+ * Version mejorada:
+ * Ya no hace polling revisando ship->state.
+ *
+ * Ahora el scheduler queda bloqueado hasta que el barco le mande
+ * una notificacion de regreso cuando termina una unidad.
  */
 static void waitForShipExecution(ShipTask *ship) {
     if (ship == NULL) {
@@ -21,21 +23,13 @@ static void waitForShipExecution(ShipTask *ship) {
     }
 
     /*
-     * Mientras el barco este en estado RUNNING, esperamos.
+     * El scheduler se bloquea aqui.
+     * No consume CPU esperando en un while.
      *
-     * Nota:
-     * Esto es una forma simple para esta primera integracion.
-     * Luego se puede mejorar usando semaforos o notificaciones de vuelta.
+     * El barco debe llamar xTaskNotifyGive(ship->scheduler_handle)
+     * cuando termina su unidad de ejecucion.
      */
-    while (ship->state == SHIP_RUNNING) {
-        vTaskDelay(pdMS_TO_TICKS(50));
-    }
-
-    /*
-     * Pequena espera adicional para darle margen a los prints
-     * y al cambio de estado de la task.
-     */
-    vTaskDelay(pdMS_TO_TICKS(50));
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 }
 
 /*
@@ -45,13 +39,12 @@ void roundRobinFreeRTOSStep(
     ReadyQueue *queue,
     ReadyQueue *left_queue,
     ReadyQueue *right_queue,
-    int quantum) {
+    int quantum
+) {
     if (queue == NULL) {
         return;
     }
 
-
-    
     if (quantum <= 0) {
         printf("[ERROR] El quantum debe ser mayor que cero.\n");
         return;
@@ -97,12 +90,24 @@ void roundRobinFreeRTOSStep(
                quantum);
 
         /*
+         * Guardamos el handle del scheduler actual dentro del barco.
+         *
+         * Asi, cuando el barco termine su unidad de ejecucion,
+         * puede avisarle de vuelta al scheduler.
+         */
+        setShipSchedulerHandle(
+            current_ship,
+            xTaskGetCurrentTaskHandle()
+        );
+
+        /*
          * Aqui el calendarizador activa la task real del barco.
          */
         wakeShipTask(current_ship);
 
         /*
          * Esperamos a que la task del barco avance una unidad.
+         * Esta espera ahora es bloqueante, no por polling.
          */
         waitForShipExecution(current_ship);
     }
@@ -145,17 +150,28 @@ void runRoundRobinFreeRTOSTwoQueues(
 
     printf("\n========== RR CON TASKS REALES DE FREERTOS ==========\n");
     printf("Quantum: %d\n", quantum);
+
     lcd_display_update(left_queue, right_queue, NULL);
 
     while (!isQueueEmpty(left_queue) || !isQueueEmpty(right_queue)) {
         printf("\n---------- Ciclo %d ----------\n", cycle);
 
         if (!isQueueEmpty(left_queue)) {
-            roundRobinFreeRTOSStep(left_queue, left_queue, right_queue, quantum);
+            roundRobinFreeRTOSStep(
+                left_queue,
+                left_queue,
+                right_queue,
+                quantum
+            );
         }
 
         if (!isQueueEmpty(right_queue)) {
-            roundRobinFreeRTOSStep(right_queue, left_queue, right_queue, quantum);
+            roundRobinFreeRTOSStep(
+                right_queue,
+                left_queue,
+                right_queue,
+                quantum
+            );
         }
 
         printQueue(left_queue);
@@ -170,5 +186,6 @@ void runRoundRobinFreeRTOSTwoQueues(
     }
 
     printf("\n[RR] Todas las colas quedaron vacias.\n");
-    
+
+    lcd_display_update(left_queue, right_queue, NULL);
 }

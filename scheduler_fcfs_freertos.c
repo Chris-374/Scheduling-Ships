@@ -9,9 +9,11 @@
 /*
  * Espera a que la task del barco termine una unidad de ejecucion.
  *
- * wakeShipTask() solamente despierta la task.
- * La task real corre aparte, entonces el scheduler debe esperar
- * a que el barco avance.
+ * Version mejorada:
+ * Ya no hace polling revisando ship->state.
+ *
+ * Ahora el scheduler queda bloqueado hasta que el barco le mande
+ * una notificacion de regreso cuando termina una unidad.
  */
 static void waitForShipExecution(ShipTask *ship) {
     if (ship == NULL) {
@@ -19,25 +21,13 @@ static void waitForShipExecution(ShipTask *ship) {
     }
 
     /*
-     * Esperamos a que la task pase de WAITING a RUNNING o FINISHED.
-     * Esto evita que el scheduler siga demasiado rapido antes de que
-     * la task realmente haya empezado a correr.
+     * El scheduler se bloquea aqui.
+     * No consume CPU esperando en un while.
+     *
+     * El barco debe llamar xTaskNotifyGive(ship->scheduler_handle)
+     * cuando termina su unidad de ejecucion.
      */
-    while (ship->state == SHIP_WAITING && !isShipFinished(ship)) {
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
-
-    /*
-     * Mientras el barco este ejecutando, esperamos.
-     */
-    while (ship->state == SHIP_RUNNING) {
-        vTaskDelay(pdMS_TO_TICKS(50));
-    }
-
-    /*
-     * Pequena espera adicional para que los prints salgan mas ordenados.
-     */
-    vTaskDelay(pdMS_TO_TICKS(50));
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 }
 
 /*
@@ -84,8 +74,26 @@ void fcfsFreeRTOSStep(ReadyQueue *queue) {
                current_ship->name,
                current_ship->remaining_time);
 
+        /*
+         * Guardamos el handle del scheduler actual dentro del barco.
+         *
+         * Asi, cuando el barco termine su unidad de ejecucion,
+         * puede avisarle de vuelta al scheduler.
+         */
+        setShipSchedulerHandle(
+            current_ship,
+            xTaskGetCurrentTaskHandle()
+        );
+
+        /*
+         * Aqui el calendarizador activa la task real del barco.
+         */
         wakeShipTask(current_ship);
 
+        /*
+         * Esperamos a que la task del barco avance una unidad.
+         * Esta espera ahora es bloqueante, no por polling.
+         */
         waitForShipExecution(current_ship);
     }
 

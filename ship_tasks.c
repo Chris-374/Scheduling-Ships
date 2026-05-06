@@ -68,7 +68,8 @@ static void shipTaskFunction(void *pvParameters) {
 
     while (ship->remaining_time > 0) {
         /*
-         * La task queda esperando hasta que el scheduler la despierte.
+         * La task queda bloqueada aqui.
+         * Esto NO consume CPU mientras espera.
          */
         ship->state = SHIP_WAITING;
 
@@ -99,6 +100,18 @@ static void shipTaskFunction(void *pvParameters) {
         printf("[PAUSA] %s | restante despues: %d\n",
                ship->name,
                ship->remaining_time);
+
+        /*
+         * Notificacion de regreso.
+         *
+         * El barco le avisa al scheduler:
+         * "ya termine esta unidad de ejecucion".
+         *
+         * Asi el scheduler no necesita hacer polling revisando ship->state.
+         */
+        if (ship->scheduler_handle != NULL) {
+            xTaskNotifyGive(ship->scheduler_handle);
+        }
     }
 
     ship->state = SHIP_FINISHED;
@@ -106,10 +119,13 @@ static void shipTaskFunction(void *pvParameters) {
     printf("[TERMINADO] %s termino su recorrido.\n", ship->name);
 
     /*
-     * Se elimina la task actual.
-     * No se libera ship porque en este proyecto los barcos
-     * estan creados como variables globales/static en main.c.
+     * Si por alguna razon termina sin haber notificado antes,
+     * avisamos al scheduler una ultima vez.
      */
+    if (ship->scheduler_handle != NULL) {
+        xTaskNotifyGive(ship->scheduler_handle);
+    }
+
     vTaskDelete(NULL);
 }
 
@@ -117,7 +133,7 @@ static void shipTaskFunction(void *pvParameters) {
  * Crea un barco y su task real de FreeRTOS.
  */
 int createShipTask(
-    ShipTask *ship, 
+    ShipTask *ship,
     int id,
     const char *name,
     ShipType type,
@@ -146,15 +162,16 @@ int createShipTask(
 
     ship->state = SHIP_WAITING;
     ship->handle = NULL;
+    ship->scheduler_handle = NULL;
 
     BaseType_t result = xTaskCreatePinnedToCore(
-        shipTaskFunction, // Funcion que ejecuta la task
-        ship->name, // Nombre de la task
-        SHIP_STACK_SIZE, // Stack en bytes en ESP-IDF
-        ship, // Parametro que recibe la task
-        1, // Prioridad FreeRTOS baja
-        &ship->handle, // Aqui se guarda el handle
-        tskNO_AFFINITY  // Puede correr en cualquier nucleo
+        shipTaskFunction,
+        ship->name,
+        SHIP_STACK_SIZE,
+        ship,
+        1,
+        &ship->handle,
+        tskNO_AFFINITY
     );
 
     if (result != pdPASS) {
@@ -165,6 +182,20 @@ int createShipTask(
     printf("[OK] Barco %s creado como task real de FreeRTOS.\n", ship->name);
 
     return 1;
+}
+
+/*
+ * Guarda el handle del scheduler dentro del barco.
+ *
+ * Esto permite que el barco notifique al scheduler cuando termina
+ * una unidad de ejecucion.
+ */
+void setShipSchedulerHandle(ShipTask *ship, TaskHandle_t scheduler_handle) {
+    if (ship == NULL) {
+        return;
+    }
+
+    ship->scheduler_handle = scheduler_handle;
 }
 
 /*

@@ -151,7 +151,50 @@ static void run_sign(ReadyQueue *left_queue, ReadyQueue *right_queue, int sign_d
         }
     }
 }
+/* =========================================
+ * NUEVA POLÍTICA 3: TICO (Pase hasta vaciar)
+ * ========================================= */
+static void run_tico(ReadyQueue *left_queue, ReadyQueue *right_queue, int max_ticks, SchedulerType active_scheduler) {
+    int current_side = LEFT_SIDE;
+    ShipTask *current_ship = NULL;
 
+    printf("\n[CANAL] Iniciando control de flujo: TICO (Pasan hasta vaciar la fila)\n");
+
+    while (!isQueueEmpty(left_queue) || !isQueueEmpty(right_queue)) {
+        ReadyQueue *active_queue = (current_side == LEFT_SIDE) ? left_queue : right_queue;
+        const char *side_name = (current_side == LEFT_SIDE) ? "Izquierda" : "Derecha";
+
+        // Si hay barcos de este lado, pasan. Si no, cambiamos de lado inmediatamente.
+        if (!isQueueEmpty(active_queue)) {
+            if (dequeue(active_queue, &current_ship)) {
+                printf("\n[CANAL] %s entra al canal desde la %s.\n", current_ship->name, side_name);
+                lcd_display_update(left_queue, right_queue, current_ship);
+
+                if (max_ticks == 0) {
+                    while (!isShipFinished(current_ship)) {
+                        wakeShipTask(current_ship);
+                        wait_one_tick(current_ship);
+                    }
+                } else {
+                    for (int i = 0; i < max_ticks; i++) {
+                        if (isShipFinished(current_ship)) break;
+                        wakeShipTask(current_ship);
+                        wait_one_tick(current_ship);
+                    }
+                    if (!isShipFinished(current_ship)) {
+                        printf("[CALENDARIZADOR] %s agotó su tiempo. Vuelve a la cola ordenada.\n", current_ship->name);
+                        reenqueue_ship(active_queue, current_ship, active_scheduler); 
+                    }
+                }
+            }
+        } else {
+            // No hay control de flujo estricto, cedemos el puente al lado que sí tiene barcos
+            current_side = (current_side == LEFT_SIDE) ? RIGHT_SIDE : LEFT_SIDE;
+            printf("\n[CANAL] La fila %s está vacía. Cediendo el paso al lado contrario.\n", side_name);
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+    }
+}
 /* =========================================
  * CONTROLADOR PRINCIPAL DEL CANAL
  * ========================================= */
@@ -169,7 +212,8 @@ void run_channel_flow(ChannelType channel_type, ReadyQueue *left_queue, ReadyQue
             run_sign(left_queue, right_queue, param, max_ticks, active_scheduler);
             break;
         case CHANNEL_TICO:
-            printf("\n[CANAL] Algoritmo Tico aún no implementado.\n");
+            // NUEVO: Llamada a la función Tico
+            run_tico(left_queue, right_queue, max_ticks, active_scheduler);
             break;
         default:
             printf("\n[ERROR] Algoritmo de canal desconocido.\n");

@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "canal.h"
@@ -12,7 +13,58 @@ static void wait_one_tick(ShipTask *ship) {
     vTaskDelay(pdMS_TO_TICKS(50)); 
 }
 
-void run_channel_equity(ReadyQueue *left_queue, ReadyQueue *right_queue, int W, int max_ticks) {
+/*
+ * NUEVO: Función para devolver el barco a la fila de forma ordenada
+ * dependiendo del algoritmo expropiativo que esté corriendo.
+ */
+static void reenqueue_ship(ReadyQueue *queue, ShipTask *ship, SchedulerType scheduler) {
+    if (scheduler == SCHEDULER_STRN) {
+        // Lógica de inserción ordenada para STRN (menor remaining_time primero)
+        ReadyNode *new_node = (ReadyNode *)malloc(sizeof(ReadyNode));
+        if (new_node == NULL) {
+            printf("[ERROR] No se pudo asignar memoria para reencolar %s\n", ship->name);
+            return;
+        }
+        new_node->ship = ship;
+        new_node->next = NULL;
+
+        // Si la cola está vacía
+        if (queue->front == NULL) {
+            queue->front = new_node;
+            queue->rear = new_node;
+            queue->size++;
+            return;
+        }
+
+        // Si tiene menor tiempo restante que el primero
+        if (ship->remaining_time < queue->front->ship->remaining_time) {
+            new_node->next = queue->front;
+            queue->front = new_node;
+            queue->size++;
+            return;
+        }
+
+        // Buscar la posición correcta para mantener el orden
+        ReadyNode *current = queue->front;
+        while (current->next != NULL && current->next->ship->remaining_time <= ship->remaining_time) {
+            current = current->next;
+        }
+
+        new_node->next = current->next;
+        current->next = new_node;
+
+        if (new_node->next == NULL) {
+            queue->rear = new_node;
+        }
+        queue->size++;
+        
+    } else {
+        // RR u otros métodos usan la inserción normal al final de la fila
+        enqueue(queue, ship);
+    }
+}
+
+void run_channel_equity(ReadyQueue *left_queue, ReadyQueue *right_queue, int W, int max_ticks, SchedulerType active_scheduler) {
     if (W <= 0) {
         printf("[ERROR CANAL] El parámetro W debe ser mayor que 0.\n");
         return;
@@ -30,38 +82,34 @@ void run_channel_equity(ReadyQueue *left_queue, ReadyQueue *right_queue, int W, 
 
         if (!isQueueEmpty(active_queue) && ships_passed < W) {
             
-            // 1. El Canal saca al barco que el Calendarizador puso en la posición #1
             if (dequeue(active_queue, &current_ship)) {
                 printf("\n[CANAL] %s entra al canal desde la %s.\n", current_ship->name, side_name);
                 lcd_display_update(left_queue, right_queue, current_ship);
 
-                // 2. El Canal revisa las reglas del Calendarizador para este barco
                 if (max_ticks == 0) {
-                    // REGLA NO EXPROPIATIVA (SJF, Prioridad, FCFS): Cruza completo
+                    // REGLA NO EXPROPIATIVA
                     while (!isShipFinished(current_ship)) {
                         wakeShipTask(current_ship);
                         wait_one_tick(current_ship);
                     }
                 } else {
-                    // REGLA EXPROPIATIVA (Round Robin, STRN): Cruza solo por N unidades (quantum)
+                    // REGLA EXPROPIATIVA
                     for (int i = 0; i < max_ticks; i++) {
                         if (isShipFinished(current_ship)) break;
                         wakeShipTask(current_ship);
                         wait_one_tick(current_ship);
                     }
                     
-                    // Si el barco agotó su tiempo y no terminó, el calendarizador lo manda a hacer fila
+                    // MODIFICADO: Reencolado dinámico basado en el algoritmo
                     if (!isShipFinished(current_ship)) {
-                        printf("[CALENDARIZADOR] %s agotó su tiempo. Vuelve a la cola.\n", current_ship->name);
-                        // Su compañero luego cambiará este enqueue genérico por enqueueByPriority si es STRN
-                        enqueue(active_queue, current_ship); 
+                        printf("[CALENDARIZADOR] %s agotó su tiempo. Vuelve a la cola de forma ordenada.\n", current_ship->name);
+                        reenqueue_ship(active_queue, current_ship, active_scheduler); 
                     }
                 }
                 
                 ships_passed++;
             }
         } else {
-            // Lógica propia del Canal: Cambiar de lado cuando pasan W barcos
             current_side = (current_side == LEFT_SIDE) ? RIGHT_SIDE : LEFT_SIDE;
             ships_passed = 0;
             printf("\n[CANAL] Cambio de sentido. Atendiendo a la cola %s.\n", 

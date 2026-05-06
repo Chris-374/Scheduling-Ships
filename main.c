@@ -45,14 +45,6 @@ static ReadyQueue right_queue;
  * - menu por consola
  * - boton/interfaz
  */
-typedef enum {
-    SCHEDULER_RR = 0,
-    SCHEDULER_PRIORITY = 1,
-    SCHEDULER_SJF = 2,
-    SCHEDULER_STRN = 3,
-    SCHEDULER_FCFS = 4,
-    SCHEDULER_EDF = 5
-} SchedulerType;
 
 /*
  * Cambiar aqui para probar:
@@ -79,38 +71,43 @@ void schedulerTask(void *pvParameters) {
     printQueue(&left_queue);
     printQueue(&right_queue);
 
-    /* Variable para definir si el barco cruza completo (0) o por partes (quantum) */
     int max_ticks = 0; 
 
     switch (SELECTED_SCHEDULER) {
         case SCHEDULER_RR:
             printf("\n[SCHEDULER] Calendarizador seleccionado: Round Robin\n");
             max_ticks = quantum;
+            /* runRoundRobinFreeRTOSTwoQueues(&left_queue, &right_queue, quantum); */
             break;
 
         case SCHEDULER_PRIORITY:
             printf("\n[SCHEDULER] Calendarizador seleccionado: Prioridad\n");
             max_ticks = 0;
+            /* runPriorityFreeRTOSTwoQueues(&left_queue, &right_queue); */
             break;
 
         case SCHEDULER_SJF:
             printf("\n[SCHEDULER] Calendarizador seleccionado: SJF\n");
             max_ticks = 0;
+            /* runSJFFreeRTOSTwoQueues(&left_queue, &right_queue); */
             break;
 
         case SCHEDULER_STRN:
             printf("\n[SCHEDULER] Calendarizador seleccionado: STRN\n");
             max_ticks = 1;
+            /* runSTRNFreeRTOSTwoQueues(&left_queue, &right_queue); */
             break;
 
         case SCHEDULER_FCFS:
             printf("\n[SCHEDULER] Calendarizador seleccionado: FCFS\n");
             max_ticks = 0;
+            /* runFCFSFreeRTOSTwoQueues(&left_queue, &right_queue); */
             break;
 
         case SCHEDULER_EDF:
             printf("\n[SCHEDULER] Calendarizador seleccionado: EDF\n");
             max_ticks = 0;
+            /* runEDFFreeRTOSTwoQueues(&left_queue, &right_queue); */
             break;
 
         default:
@@ -118,8 +115,8 @@ void schedulerTask(void *pvParameters) {
             break;
     }
 
-    /* Llamada al mecanismo del puente para que ejecute el flujo físico */
-    run_channel_equity(&left_queue, &right_queue, 2, max_ticks);
+    /* LLAMADA AL CANAL CON LOS 5 PARÁMETROS */
+    run_channel_equity(&left_queue, &right_queue, 2, max_ticks, SELECTED_SCHEDULER);
 
     printf("\n[SCHEDULER] Calendarizacion terminada.\n");
 
@@ -132,7 +129,6 @@ void schedulerTask(void *pvParameters) {
 
     vTaskDelete(NULL);
 }
-
 /*
  * Punto de entrada de ESP-IDF.
  */

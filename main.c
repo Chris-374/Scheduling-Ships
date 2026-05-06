@@ -58,7 +58,7 @@ static ReadyQueue right_queue;
  */
 #define SELECTED_SCHEDULER SCHEDULER_RR
 /* Opciones de Canal: CHANNEL_EQUITY, CHANNEL_SIGN, CHANNEL_TICO */
-#define SELECTED_CHANNEL CHANNEL_SIGN
+#define SELECTED_CHANNEL CHANNEL_TICO
 
 /* Si es Equidad, esto es W. Si es Letrero, es el Tiempo */
 #define CHANNEL_PARAM 4

@@ -13,17 +13,30 @@ typedef enum {
     SCHEDULER_EDF = 5
 } SchedulerType;
 
-/* NUEVO: Enumerador para elegir el tipo de control del canal */
+/* Enumerador para elegir el tipo de control del canal */
 typedef enum {
     CHANNEL_EQUITY = 0,
     CHANNEL_SIGN = 1,
     CHANNEL_TICO = 2
 } ChannelType;
 
-/* 
- * Función unificada para correr cualquier política de canal.
- * param: Representa 'W' si es Equidad, o el 'tiempo del temporizador' si es Letrero.
+/*
+ * Ejecuta el canal usando una politica de flujo y un calendarizador.
+ * param:
+ *   - Equidad: W
+ *   - Letrero: duracion del letrero en ticks
+ *   - Tico: cualquier valor > 0
+ * max_ticks:
+ *   - 0 = no expropiativo, el barco sigue hasta terminar su trabajo
+ *   - N = expropiativo, tras N unidades vuelve a cola guardando posicion
  */
-void run_channel_flow(ChannelType channel_type, ReadyQueue *left_queue, ReadyQueue *right_queue, int param, int max_ticks, SchedulerType active_scheduler);
+void run_channel_flow(
+    ChannelType channel_type,
+    ReadyQueue *left_queue,
+    ReadyQueue *right_queue,
+    int param,
+    int max_ticks,
+    SchedulerType active_scheduler
+);
 
 #endif

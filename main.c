@@ -56,12 +56,9 @@ static ReadyQueue right_queue;
  * SCHEDULER_FCFS
  * SCHEDULER_EDF
  */
-#define SELECTED_SCHEDULER SCHEDULER_RR
-/* Opciones de Canal: CHANNEL_EQUITY, CHANNEL_SIGN, CHANNEL_TICO */
-#define SELECTED_CHANNEL CHANNEL_TICO
-
-/* Si es Equidad, esto es W. Si es Letrero, es el Tiempo */
-#define CHANNEL_PARAM 4
+#define SELECTED_SCHEDULER SCHEDULER_EDF
+#define SELECTED_CHANNEL CHANNEL_EQUITY
+#define CHANNEL_PARAM 2
 /*
  * Esta es la task del calendarizador.
  *

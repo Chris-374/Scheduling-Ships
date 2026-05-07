@@ -145,6 +145,17 @@ int createShipTask(
     ship->deadline = deadline;
 
     ship->state = SHIP_WAITING;
+
+    /*
+     * Al crear el barco todavía no tiene una posición guardada
+     * dentro del canal. Cuando RR/STRN lo saquen por cambio de
+     * contexto, canal.c guardará estos campos.
+     */
+    ship->channel_has_position = 0;
+    ship->channel_position = -1;
+    ship->channel_direction = side;
+    ship->channel_speed_counter = 0;
+
     ship->handle = NULL;
 
     BaseType_t result = xTaskCreatePinnedToCore(

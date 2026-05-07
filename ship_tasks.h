@@ -39,6 +39,16 @@ typedef struct {
 
     ShipState state; //Estado del barco: Espera, corriendo o terminado
 
+    /*
+     * Contexto fisico/logico dentro del canal.
+     * Se usa cuando un scheduler expropiativo (RR/STRN)
+     * saca el barco antes de que llegue al otro extremo.
+     */
+    int channel_has_position;
+    int channel_position;
+    int channel_direction;
+    int channel_speed_counter;
+
     TaskHandle_t handle; // Puntero al task real en FreeRTOS
 } ShipTask;
 

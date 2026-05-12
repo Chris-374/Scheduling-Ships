@@ -3,6 +3,18 @@
 
 #include "ready_queue.h"
 
+/*
+ * Habilita una task de teclado para crear barcos durante la ejecucion.
+ * Teclas:
+ * 1 = Normal izquierda
+ * 2 = Pesquera izquierda
+ * 3 = Patrulla izquierda
+ * 4 = Normal derecha
+ * 5 = Pesquera derecha
+ * 6 = Patrulla derecha
+ */
+void canal_start_keyboard_input(void);
+
 /* Enumerador de calendarizadores */
 typedef enum {
     SCHEDULER_RR = 0,

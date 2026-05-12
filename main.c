@@ -146,6 +146,13 @@ void app_main(void) {
     lcd_display_init();
 
     /*
+     * Habilita la entrada por teclado durante la ejecucion:
+     * 1,2,3 agregan barcos a la izquierda.
+     * 4,5,6 agregan barcos a la derecha.
+     */
+    canal_start_keyboard_input();
+
+    /*
      * Creamos barcos como tasks reales de FreeRTOS.
      *
      * Parametros:

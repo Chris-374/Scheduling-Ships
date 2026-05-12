@@ -6,38 +6,25 @@
 
 #include "ship_tasks.h"
 
-/*
- * Convierte el tipo de barco a texto.
- * Sirve para imprimir informacion en consola.
- */
 const char *shipTypeToString(ShipType type) {
     switch (type) {
         case NORMAL:
             return "Normal";
-
         case FISHING:
             return "Pesquera";
-
         case PATROL:
             return "Patrulla";
-
         default:
             return "Desconocido";
     }
 }
 
-/*
- * Convierte el lado del barco a texto.
- * Sirve para imprimir informacion en consola.
- */
 const char *sideToString(Side side) {
     switch (side) {
         case LEFT_SIDE:
             return "Izquierda";
-
         case RIGHT_SIDE:
             return "Derecha";
-
         default:
             return "Desconocido";
     }
@@ -46,8 +33,13 @@ const char *sideToString(Side side) {
 /*
  * Esta funcion es la que ejecuta cada task real de FreeRTOS.
  *
- * Cada barco queda bloqueado esperando una notificacion.
- * El calendarizador despierta el barco usando wakeShipTask().
+ * El barco se queda bloqueado esperando wakeShipTask().
+ * Cuando ejecuta una unidad, reduce remaining_time.
+ * Si existe scheduler_handle, avisa al scheduler con xTaskNotifyGive().
+ *
+ * Esto permite dos formas de espera:
+ * - canal.c actual puede seguir esperando por estado/polling.
+ * - schedulers optimizados pueden esperar con ulTaskNotifyTake().
  */
 static void shipTaskFunction(void *pvParameters) {
     ShipTask *ship = (ShipTask *)pvParameters;
@@ -67,17 +59,10 @@ static void shipTaskFunction(void *pvParameters) {
            ship->deadline);
 
     while (ship->remaining_time > 0) {
-        /*
-         * La task queda esperando hasta que el scheduler la despierte.
-         */
         ship->state = SHIP_WAITING;
 
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-        /*
-         * Si mientras estaba esperando ya quedo como terminado,
-         * no ejecutamos nada mas.
-         */
         if (ship->remaining_time <= 0) {
             break;
         }
@@ -88,10 +73,6 @@ static void shipTaskFunction(void *pvParameters) {
                ship->name,
                ship->remaining_time);
 
-        /*
-         * Simula una unidad de ejecucion.
-         * En el futuro esto puede representar avance en LCD/LEDs/canal.
-         */
         vTaskDelay(pdMS_TO_TICKS(500));
 
         ship->remaining_time--;
@@ -99,25 +80,25 @@ static void shipTaskFunction(void *pvParameters) {
         printf("[PAUSA] %s | restante despues: %d\n",
                ship->name,
                ship->remaining_time);
+
+        /*
+         * Notificacion opcional para schedulers optimizados.
+         * No afecta al canal actual si scheduler_handle esta en NULL.
+         */
+        if (ship->scheduler_handle != NULL) {
+            xTaskNotifyGive(ship->scheduler_handle);
+        }
     }
 
     ship->state = SHIP_FINISHED;
 
     printf("[TERMINADO] %s termino su recorrido.\n", ship->name);
 
-    /*
-     * Se elimina la task actual.
-     * No se libera ship porque en este proyecto los barcos
-     * estan creados como variables globales/static en main.c.
-     */
     vTaskDelete(NULL);
 }
 
-/*
- * Crea un barco y su task real de FreeRTOS.
- */
 int createShipTask(
-    ShipTask *ship, 
+    ShipTask *ship,
     int id,
     const char *name,
     ShipType type,
@@ -147,9 +128,9 @@ int createShipTask(
     ship->state = SHIP_WAITING;
 
     /*
-     * Al crear el barco todavía no tiene una posición guardada
-     * dentro del canal. Cuando RR/STRN lo saquen por cambio de
-     * contexto, canal.c guardará estos campos.
+     * Contexto del canal.
+     * No se debe quitar: canal.c lo usa para que RR/STRN continúen
+     * desde la posicion donde quedaron.
      */
     ship->channel_has_position = 0;
     ship->channel_position = -1;
@@ -157,15 +138,16 @@ int createShipTask(
     ship->channel_speed_counter = 0;
 
     ship->handle = NULL;
+    ship->scheduler_handle = NULL;
 
     BaseType_t result = xTaskCreatePinnedToCore(
-        shipTaskFunction, // Funcion que ejecuta la task
-        ship->name, // Nombre de la task
-        SHIP_STACK_SIZE, // Stack en bytes en ESP-IDF
-        ship, // Parametro que recibe la task
-        1, // Prioridad FreeRTOS baja
-        &ship->handle, // Aqui se guarda el handle
-        tskNO_AFFINITY  // Puede correr en cualquier nucleo
+        shipTaskFunction,
+        ship->name,
+        SHIP_STACK_SIZE,
+        ship,
+        1,
+        &ship->handle,
+        tskNO_AFFINITY
     );
 
     if (result != pdPASS) {
@@ -178,10 +160,14 @@ int createShipTask(
     return 1;
 }
 
-/*
- * Despierta la task real de un barco.
- * Esto lo usa el calendarizador.
- */
+void setShipSchedulerHandle(ShipTask *ship, TaskHandle_t scheduler_handle) {
+    if (ship == NULL) {
+        return;
+    }
+
+    ship->scheduler_handle = scheduler_handle;
+}
+
 void wakeShipTask(ShipTask *ship) {
     if (ship == NULL || ship->handle == NULL) {
         return;
@@ -195,10 +181,6 @@ void wakeShipTask(ShipTask *ship) {
     xTaskNotifyGive(ship->handle);
 }
 
-/*
- * Retorna 1 si el barco ya termino.
- * Retorna 0 si todavia puede ejecutarse.
- */
 int isShipFinished(const ShipTask *ship) {
     if (ship == NULL) {
         return 1;

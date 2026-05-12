@@ -25,31 +25,32 @@ typedef enum {
 } ShipState;
 
 typedef struct {
-    int id; // ID del barco/proceso
-    char name[NAME_SIZE]; //Nombre del proceso (string)
+    int id;                 // ID del barco/proceso
+    char name[NAME_SIZE];   // Nombre del proceso/barco
 
-    ShipType type; //Tipo de barco
-    Side side; //Lado del canal en el que esta el barco
+    ShipType type;          // Tipo de barco
+    Side side;              // Lado desde donde se genero el barco
 
-    int burst_time; //Tiempo que le toma al barco terminar
-    int remaining_time; // Tiempo restante
+    int burst_time;         // Tiempo total que necesita ejecutar
+    int remaining_time;     // Tiempo restante de ejecucion
 
-    int priority; //Num de prioridad
-    int deadline; //Deadline del proceso 
+    int priority;           // Numero de prioridad
+    int deadline;           // Deadline del proceso
 
-    ShipState state; //Estado del barco: Espera, corriendo o terminado
+    ShipState state;        // Estado del barco
 
     /*
      * Contexto fisico/logico dentro del canal.
-     * Se usa cuando un scheduler expropiativo (RR/STRN)
-     * saca el barco antes de que llegue al otro extremo.
+     * Esto es lo que permite que RR/STRN retomen desde donde quedaron
+     * cuando el barco vuelve a la cola por cambio de contexto.
      */
     int channel_has_position;
     int channel_position;
     int channel_direction;
     int channel_speed_counter;
 
-    TaskHandle_t handle; // Puntero al task real en FreeRTOS
+    TaskHandle_t handle;            // Task real del barco en FreeRTOS
+    TaskHandle_t scheduler_handle;  // Scheduler al que debe avisar al terminar una unidad
 } ShipTask;
 
 int createShipTask(
@@ -64,6 +65,8 @@ int createShipTask(
 );
 
 void wakeShipTask(ShipTask *ship);
+
+void setShipSchedulerHandle(ShipTask *ship, TaskHandle_t scheduler_handle);
 
 int isShipFinished(const ShipTask *ship);
 

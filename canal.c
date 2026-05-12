@@ -8,6 +8,7 @@
 #include "ship_tasks.h"
 #include "ready_queue.h"
 #include "lcd_display.h"
+#include "schedulers/scheduler_policy.h"
 
 #define CHANNEL_LENGTH 10
 #define MAX_SHIPS_IN_CHANNEL 4
@@ -240,152 +241,6 @@ static void print_channel(ChannelState *channel) {
     printf("\n");
 }
 
-static int ship_goes_before(
-    ShipTask *a,
-    ShipTask *b,
-    SchedulerType scheduler
-) {
-    if (a == NULL || b == NULL) {
-        return 0;
-    }
-
-    switch (scheduler) {
-        case SCHEDULER_PRIORITY:
-            return a->priority < b->priority;
-
-        case SCHEDULER_SJF:
-            return a->burst_time < b->burst_time;
-
-        case SCHEDULER_STRN:
-            return a->remaining_time < b->remaining_time;
-
-        case SCHEDULER_EDF:
-            return a->deadline < b->deadline;
-
-        case SCHEDULER_RR:
-        case SCHEDULER_FCFS:
-        default:
-            return 0;
-    }
-}
-
-static int enqueue_ordered(
-    ReadyQueue *queue,
-    ShipTask *ship,
-    SchedulerType scheduler
-) {
-    if (queue == NULL || ship == NULL) {
-        return 0;
-    }
-
-    if (scheduler == SCHEDULER_RR || scheduler == SCHEDULER_FCFS) {
-        return enqueue(queue, ship);
-    }
-
-    ReadyNode *new_node = (ReadyNode *)malloc(sizeof(ReadyNode));
-
-    if (new_node == NULL) {
-        printf("[ERROR] No se pudo reservar nodo para %s.\n", ship->name);
-        return 0;
-    }
-
-    new_node->ship = ship;
-    new_node->next = NULL;
-
-    if (queue->front == NULL) {
-        queue->front = new_node;
-        queue->rear = new_node;
-        queue->size++;
-        return 1;
-    }
-
-    if (ship_goes_before(ship, queue->front->ship, scheduler)) {
-        new_node->next = queue->front;
-        queue->front = new_node;
-        queue->size++;
-        return 1;
-    }
-
-    ReadyNode *current = queue->front;
-
-    while (current->next != NULL &&
-           !ship_goes_before(ship, current->next->ship, scheduler)) {
-        current = current->next;
-    }
-
-    new_node->next = current->next;
-    current->next = new_node;
-
-    if (new_node->next == NULL) {
-        queue->rear = new_node;
-    }
-
-    queue->size++;
-
-    return 1;
-}
-
-static ShipTask *select_next_ship(ReadyQueue *queue, SchedulerType scheduler) {
-    if (queue == NULL || queue->front == NULL) {
-        return NULL;
-    }
-
-    if (scheduler == SCHEDULER_RR || scheduler == SCHEDULER_FCFS) {
-        return queue->front->ship;
-    }
-
-    ReadyNode *current = queue->front;
-    ShipTask *best = current->ship;
-
-    while (current != NULL) {
-        if (ship_goes_before(current->ship, best, scheduler)) {
-            best = current->ship;
-        }
-
-        current = current->next;
-    }
-
-    return best;
-}
-
-static int remove_specific_ship(ReadyQueue *queue, ShipTask *ship) {
-    if (queue == NULL || ship == NULL || queue->front == NULL) {
-        return 0;
-    }
-
-    ReadyNode *current = queue->front;
-    ReadyNode *previous = NULL;
-
-    while (current != NULL) {
-        if (current->ship == ship) {
-            if (previous == NULL) {
-                queue->front = current->next;
-            } else {
-                previous->next = current->next;
-            }
-
-            if (queue->rear == current) {
-                queue->rear = previous;
-            }
-
-            free(current);
-            queue->size--;
-
-            if (queue->size == 0) {
-                queue->front = NULL;
-                queue->rear = NULL;
-            }
-
-            return 1;
-        }
-
-        previous = current;
-        current = current->next;
-    }
-
-    return 0;
-}
-
 static void clear_saved_channel_context(ShipTask *ship) {
     if (ship == NULL) {
         return;
@@ -463,7 +318,7 @@ static void requeue_from_channel(
            ship->name,
            boat->position);
 
-    enqueue_ordered(return_queue, ship, scheduler);
+    scheduler_enqueue_ordered(return_queue, ship, scheduler);
     remove_from_channel(channel, index);
 }
 
@@ -522,7 +377,7 @@ static int admit_one_ship(
         return 0;
     }
 
-    ShipTask *ship = select_next_ship(queue, scheduler);
+    ShipTask *ship = scheduler_select_next_ship(queue, scheduler);
 
     if (ship == NULL) {
         return 0;
@@ -549,7 +404,7 @@ static int admit_one_ship(
         return 0;
     }
 
-    if (!remove_specific_ship(queue, ship)) {
+    if (!scheduler_remove_specific_ship(queue, ship)) {
         return 0;
     }
 
@@ -566,11 +421,10 @@ static int admit_one_ship(
 
     if (ship->channel_has_position) {
         printf("\n[CANAL] %s retoma el canal desde la posicion %d en sentido %s.\n",
-            ship->name,
-            ship->channel_position,
-            direction_name(ship->channel_direction));    
-        } 
-    else {
+               ship->name,
+               target_position,
+               direction_name(target_direction));
+    } else {
         printf("\n[CANAL] %s entra al canal desde la %s en posicion %d.\n",
                ship->name,
                side_name(side),

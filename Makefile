@@ -1,7 +1,9 @@
 CC=gcc
 CFLAGS=-Wall -Wextra -std=c11
 TARGET=scheduling_ships
-SRCS=main.c scheduler.c scheduler_rr.c scheduler_priority.c scheduler_sjf.c scheduler_strn.c scheduler_fcfs.c scheduler_edf.c scheduler_selector.c
+
+# Se incluyen todos los módulos del proyecto para asegurar la compilación completa
+SRCS=main.c scheduler.c scheduler_rr.c scheduler_priority.c scheduler_sjf.c scheduler_strn.c scheduler_fcfs.c scheduler_edf.c scheduler_selector.c canal.c ship_tasks.c ready_queue.c lcd_display.c scheduler_rr_freertos.c scheduler_priority_freertos.c scheduler_sjf_freertos.c scheduler_strn_freertos.c scheduler_fcfs_freertos.c scheduler_edf_freertos.c
 
 all: $(TARGET)
 

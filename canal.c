@@ -14,7 +14,8 @@
 
 #define MAX_SHIPS_IN_CHANNEL 4
 #define DEFAULT_CHANNEL_TICK_MS 150
-
+/* BANDERA PARA EL SENSOR DE PROXIMIDAD */
+static volatile int proximity_sensor_alert = 0;
 static int runtime_channel_length = CHANNEL_LENGTH;
 static int runtime_channel_tick_ms = DEFAULT_CHANNEL_TICK_MS;
 
@@ -112,6 +113,14 @@ static void keyboard_input_task(void *pvParameters) {
         int key = getchar();
         ShipAddRequest request;
 
+        // --- INICIO CÓDIGO NUEVO: INTERRUPCIÓN ---
+        if (key == 'p' || key == 'P') {
+            proximity_sensor_alert = 1;
+            printf("\n[TECLADO] ¡Sensor de proximidad simulado (tecla P)!\n");
+            continue; 
+        }
+        // --- FIN CÓDIGO NUEVO ---
+
         if (key_to_ship_request(key, &request)) {
             if (ship_request_queue != NULL) {
                 if (xQueueSend(ship_request_queue, &request, 0) == pdPASS) {
@@ -126,7 +135,6 @@ static void keyboard_input_task(void *pvParameters) {
 
         vTaskDelay(pdMS_TO_TICKS(20));
     }
-}
 
 void canal_start_keyboard_input(void) {
     if (ship_request_queue == NULL) {
@@ -981,7 +989,53 @@ static int move_channel_tick(
 static void delay_channel_tick(void) {
     vTaskDelay(pdMS_TO_TICKS(runtime_channel_tick_ms));
 }
+/* =========================================
+ * MANEJO DE INTERRUPCIÓN (SENSOR PROXIMIDAD)
+ * ========================================= */
+static void handle_proximity_interrupt(
+    ChannelState *channel,
+    ReadyQueue *left_queue,
+    ReadyQueue *right_queue,
+    SchedulerType scheduler
+) {
+    if (!proximity_sensor_alert) {
+        return; // Si no hay alerta, seguimos normal
+    }
 
+    printf("\n======================================================\n");
+    printf("[INTERRUPCIÓN] ¡Sensor de proximidad detectó un buque!\n");
+    printf("[INTERRUPCIÓN] Bajando agujas y evacuando el canal...\n");
+    printf("======================================================\n");
+
+    /* 1. Bajar agujas físicas/hardware */
+    lcd_display_set_gates(1, 1);
+
+    /* 2. Sacar barcos activos, guardar su posición y devolverlos a la cola */
+    for (int i = 0; i < MAX_SHIPS_IN_CHANNEL; i++) {
+        if (channel->ships[i].active) {
+            printf("[INTERRUPCIÓN] Evacuando barco %s...\n", channel->ships[i].ship->name);
+            requeue_from_channel(channel, i, left_queue, right_queue, scheduler);
+        }
+    }
+
+    /* 3. Reordenar las colas con el scheduler activo para asegurar determinismo */
+    reorder_queue_by_scheduler(left_queue, scheduler);
+    reorder_queue_by_scheduler(right_queue, scheduler);
+
+    /* Actualizar hardware para mostrar canal vacío */
+    print_channel(channel);
+    update_hardware_channel(channel);
+    lcd_display_update(left_queue, right_queue, NULL);
+
+    /* 4. Simular el tiempo que tarda el buque externo en pasar */
+    printf("[INTERRUPCIÓN] Esperando que pase el buque grande...\n");
+    vTaskDelay(pdMS_TO_TICKS(3000)); // 3 segundos de bloqueo
+
+    /* 5. Levantar agujas y reanudar */
+    printf("[INTERRUPCIÓN] El buque pasó. Levantando agujas. Reanudando operaciones...\n");
+    lcd_display_set_gates(0, 0);
+    proximity_sensor_alert = 0;
+}
 /* =========================================
  * POLÍTICA 1: EQUIDAD
  * ========================================= */
@@ -1026,6 +1080,9 @@ static void run_equity(
     while (!isQueueEmpty(left_queue) ||
            !isQueueEmpty(right_queue) ||
            !channel_is_empty(&channel)) {
+
+        handle_proximity_interrupt(&channel, left_queue, right_queue, scheduler);
+
         process_pending_ship_requests(left_queue, right_queue, scheduler);
 
         ReadyQueue *active_queue = queue_for_side(
@@ -1157,6 +1214,9 @@ static void run_sign(
     while (!isQueueEmpty(left_queue) ||
            !isQueueEmpty(right_queue) ||
            !channel_is_empty(&channel)) {
+
+        handle_proximity_interrupt(&channel, left_queue, right_queue, scheduler);
+
         process_pending_ship_requests(left_queue, right_queue, scheduler);
 
         ReadyQueue *active_queue = queue_for_side(
@@ -1231,6 +1291,9 @@ static void run_tico(
     while (!isQueueEmpty(left_queue) ||
            !isQueueEmpty(right_queue) ||
            !channel_is_empty(&channel)) {
+
+        handle_proximity_interrupt(&channel, left_queue, right_queue, scheduler);
+        
         process_pending_ship_requests(left_queue, right_queue, scheduler);
 
         ReadyQueue *active_queue = queue_for_side(

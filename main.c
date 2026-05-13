@@ -57,9 +57,8 @@ static ReadyQueue right_queue;
  * SCHEDULER_EDF
  */
 #define SELECTED_SCHEDULER SCHEDULER_RR
-#define SELECTED_CHANNEL CHANNEL_EQUITY
-#define CHANNEL_PARAM 2
-
+#define SELECTED_CHANNEL CHANNEL_SIGN
+#define CHANNEL_PARAM 5   
 /*
  * Esta es la task del calendarizador.
  *

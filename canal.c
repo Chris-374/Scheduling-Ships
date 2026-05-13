@@ -586,6 +586,139 @@ static int get_target_direction_for_ship(ShipTask *ship, int side) {
     return side;
 }
 
+
+static int queue_has_resumable_ship(ReadyQueue *queue) {
+    if (queue == NULL) {
+        return 0;
+    }
+
+    ReadyNode *current = queue->front;
+
+    while (current != NULL) {
+        if (current->ship != NULL && current->ship->channel_has_position) {
+            return 1;
+        }
+
+        current = current->next;
+    }
+
+    return 0;
+}
+
+static ShipTask *select_next_equity_ship(
+    ReadyQueue *queue,
+    int can_start_new_ship
+) {
+    if (queue == NULL) {
+        return NULL;
+    }
+
+    ReadyNode *current = queue->front;
+
+    while (current != NULL) {
+        ShipTask *ship = current->ship;
+
+        if (ship != NULL) {
+            if (ship->channel_has_position || can_start_new_ship) {
+                return ship;
+            }
+        }
+
+        current = current->next;
+    }
+
+    return NULL;
+}
+
+static int admit_one_ship_equity(
+    ChannelState *channel,
+    ReadyQueue *left_queue,
+    ReadyQueue *right_queue,
+    int side,
+    SchedulerType scheduler,
+    int can_start_new_ship,
+    int *started_new_ship
+) {
+    if (started_new_ship != NULL) {
+        *started_new_ship = 0;
+    }
+
+    if (channel == NULL) {
+        return 0;
+    }
+
+    if (channel_count(channel) >= MAX_SHIPS_IN_CHANNEL) {
+        return 0;
+    }
+
+    ReadyQueue *queue = queue_for_side(side, left_queue, right_queue);
+
+    if (isQueueEmpty(queue)) {
+        return 0;
+    }
+
+    ShipTask *ship = select_next_equity_ship(queue, can_start_new_ship);
+
+    if (ship == NULL) {
+        return 0;
+    }
+
+    int was_already_in_batch = ship->channel_has_position;
+    int target_position = get_target_position_for_ship(ship, side);
+    int target_direction = get_target_direction_for_ship(ship, side);
+
+    if (!channel_is_empty(channel) && channel->direction != target_direction) {
+        return 0;
+    }
+
+    if (position_occupied(channel, target_position, -1)) {
+        return 0;
+    }
+
+    int slot = find_free_slot(channel);
+
+    if (slot < 0) {
+        return 0;
+    }
+
+    if (!scheduler_remove_specific_ship(queue, ship)) {
+        return 0;
+    }
+
+    channel->direction = target_direction;
+
+    channel->ships[slot].ship = ship;
+    channel->ships[slot].position = target_position;
+    channel->ships[slot].direction = target_direction;
+    channel->ships[slot].speed_counter = ship->channel_has_position
+        ? ship->channel_speed_counter
+        : 0;
+    channel->ships[slot].ticks_used = 0;
+    channel->ships[slot].active = 1;
+
+    if (ship->channel_has_position) {
+        printf("\n[CANAL] %s retoma el canal desde la posicion %d en sentido %s.\n",
+               ship->name,
+               target_position,
+               direction_name(target_direction));
+    } else {
+        printf("\n[CANAL] %s entra al canal desde la %s en posicion %d.\n",
+               ship->name,
+               side_name(side),
+               target_position);
+    }
+
+    if (!was_already_in_batch && started_new_ship != NULL) {
+        *started_new_ship = 1;
+    }
+
+    lcd_display_update(left_queue, right_queue, ship);
+    print_channel(channel);
+    update_hardware_channel(channel);
+
+    return 1;
+}
+
 static int admit_one_ship(
     ChannelState *channel,
     ReadyQueue *left_queue,
@@ -693,7 +826,7 @@ static void execute_ship_unit(ShipInChannel *boat) {
  * - Si está ocupada, ese barco no avanza en este tick.
  * - Otros barcos igual se revisan.
  */
-static void move_channel_tick(
+static int move_channel_tick(
     ChannelState *channel,
     ReadyQueue *left_queue,
     ReadyQueue *right_queue,
@@ -701,8 +834,10 @@ static void move_channel_tick(
     SchedulerType scheduler
 ) {
     if (channel == NULL || channel_is_empty(channel)) {
-        return;
+        return 0;
     }
+
+    int completed_count = 0;
 
     int processed[MAX_SHIPS_IN_CHANNEL];
 
@@ -770,6 +905,7 @@ static void move_channel_tick(
 
             lcd_display_update(left_queue, right_queue, ship);
             finish_from_channel(channel, selected);
+            completed_count++;
             continue;
         }
 
@@ -813,6 +949,8 @@ static void move_channel_tick(
 
     print_channel(channel);
     update_hardware_channel(channel);
+
+    return completed_count;
 }
 
 static void delay_channel_tick(void) {
@@ -830,7 +968,27 @@ static void run_equity(
     SchedulerType scheduler
 ) {
     int current_side = LEFT_SIDE;
-    int admitted_this_turn = 0;
+
+    /*
+     * completed_this_turn:
+     *   barcos que ya cruzaron completamente en el turno actual.
+     *
+     * started_this_turn:
+     *   barcos DISTINTOS autorizados a participar en este turno.
+     *
+     * Importante:
+     *   W no representa quantum ni cantidad de admisiones repetidas.
+     *   W representa barcos completos por sentido.
+     *
+     *   Con RR, un barco puede agotar quantum y volver a cola. Si ese barco
+     *   ya habia sido autorizado para este turno, puede retomar aunque
+     *   started_this_turn ya haya llegado a W.
+     *
+     *   Lo que NO se permite es iniciar barcos nuevos del mismo lado cuando
+     *   ya se autorizaron W barcos para ese lote de Equidad.
+     */
+    int completed_this_turn = 0;
+    int started_this_turn = 0;
 
     ChannelState channel;
     init_channel(&channel, current_side);
@@ -858,38 +1016,92 @@ static void run_equity(
         );
 
         if (channel_is_empty(&channel)) {
-            if (admitted_this_turn >= W ||
-                (isQueueEmpty(active_queue) && !isQueueEmpty(other_queue))) {
+            int active_has_resumable = queue_has_resumable_ship(active_queue);
+            int should_switch_by_w =
+                completed_this_turn >= W && !active_has_resumable;
+            int should_switch_by_empty_side =
+                isQueueEmpty(active_queue) && !isQueueEmpty(other_queue);
+
+            if (should_switch_by_w) {
+                if (!isQueueEmpty(other_queue)) {
+                    current_side = opposite_side(current_side);
+                    channel.direction = current_side;
+                    completed_this_turn = 0;
+                    started_this_turn = 0;
+
+                    lcd_display_set_direction(current_side);
+
+                    printf("\n[CANAL] Equidad: ya pasaron %d barcos completos. ", W);
+                    printf("Cambiando a la cola %s.\n", side_name(current_side));
+                } else {
+                    /*
+                     * El otro lado no tiene barcos. Se reinicia el lote del
+                     * mismo lado para garantizar flujo, tal como pide Equidad.
+                     */
+                    completed_this_turn = 0;
+                    started_this_turn = 0;
+
+                    printf("\n[CANAL] Equidad: ya pasaron %d barcos completos, ", W);
+                    printf("pero el lado contrario esta vacio. Continua %s.\n",
+                           side_name(current_side));
+                }
+            } else if (should_switch_by_empty_side) {
                 current_side = opposite_side(current_side);
                 channel.direction = current_side;
-                admitted_this_turn = 0;
+                completed_this_turn = 0;
+                started_this_turn = 0;
 
                 lcd_display_set_direction(current_side);
 
-                printf("\n[CANAL] Cambio de sentido. Atendiendo a la cola %s.\n",
-                       side_name(current_side));
+                printf("\n[CANAL] Equidad: no hay barcos en el lado activo. ");
+                printf("Cambiando a la cola %s.\n", side_name(current_side));
             }
         }
 
-        if (admitted_this_turn < W && !isQueueEmpty(active_queue)) {
-            if (admit_one_ship(
+        active_queue = queue_for_side(
+            current_side,
+            left_queue,
+            right_queue
+        );
+
+        int can_start_new_ship = started_this_turn < W;
+        int started_new_ship = 0;
+
+        if (!isQueueEmpty(active_queue)) {
+            if (admit_one_ship_equity(
                     &channel,
                     left_queue,
                     right_queue,
                     current_side,
-                    scheduler
+                    scheduler,
+                    can_start_new_ship,
+                    &started_new_ship
                 )) {
-                admitted_this_turn++;
+                if (started_new_ship) {
+                    started_this_turn++;
+                    printf("[CANAL] Equidad: barco autorizado del lado %s: %d/%d.\n",
+                           side_name(current_side),
+                           started_this_turn,
+                           W);
+                }
             }
         }
 
-        move_channel_tick(
+        int completed_now = move_channel_tick(
             &channel,
             left_queue,
             right_queue,
             max_ticks,
             scheduler
         );
+
+        if (completed_now > 0) {
+            completed_this_turn += completed_now;
+            printf("[CANAL] Equidad: barcos completos del lado %s en este turno: %d/%d.\n",
+                   side_name(current_side),
+                   completed_this_turn,
+                   W);
+        }
 
         delay_channel_tick();
     }

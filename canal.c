@@ -13,7 +13,32 @@
 #include "schedulers/scheduler_policy.h"
 
 #define MAX_SHIPS_IN_CHANNEL 4
-#define CHANNEL_TICK_MS 150
+#define DEFAULT_CHANNEL_TICK_MS 150
+
+static int runtime_channel_length = CHANNEL_LENGTH;
+static int runtime_channel_tick_ms = DEFAULT_CHANNEL_TICK_MS;
+
+void canal_set_channel_length(int length) {
+    if (length <= 0) {
+        printf("[CONFIG] Largo de canal invalido. Se mantiene %d.\n", runtime_channel_length);
+        return;
+    }
+
+    runtime_channel_length = length;
+}
+
+int canal_get_channel_length(void) {
+    return runtime_channel_length;
+}
+
+void canal_set_tick_ms(int tick_ms) {
+    if (tick_ms <= 0) {
+        printf("[CONFIG] Velocidad/tick invalido. Se mantiene %d ms.\n", runtime_channel_tick_ms);
+        return;
+    }
+
+    runtime_channel_tick_ms = tick_ms;
+}
 
 typedef struct {
     ShipTask *ship;
@@ -154,7 +179,7 @@ static ReadyQueue *queue_for_side(
 }
 
 static int entry_position(int side) {
-    return (side == LEFT_SIDE) ? 0 : CHANNEL_LENGTH - 1;
+    return (side == LEFT_SIDE) ? 0 : canal_get_channel_length() - 1;
 }
 
 static int movement_step(int side) {
@@ -163,7 +188,7 @@ static int movement_step(int side) {
 
 static int exit_reached(int position, int direction) {
     if (direction == LEFT_SIDE) {
-        return position >= CHANNEL_LENGTH;
+        return position >= canal_get_channel_length();
     }
 
     return position < 0;
@@ -215,7 +240,7 @@ static void init_channel(ChannelState *channel, int direction) {
     }
 
     channel->direction = direction;
-    channel->length = CHANNEL_LENGTH;
+    channel->length = canal_get_channel_length();
 
     for (int i = 0; i < MAX_SHIPS_IN_CHANNEL; i++) {
         channel->ships[i].ship = NULL;
@@ -320,7 +345,7 @@ static void print_channel(ChannelState *channel) {
 
     printf("[CANAL] ");
 
-    for (int pos = 0; pos < CHANNEL_LENGTH; pos++) {
+    for (int pos = 0; pos < canal_get_channel_length(); pos++) {
         ShipTask *ship_here = NULL;
 
         for (int i = 0; i < MAX_SHIPS_IN_CHANNEL; i++) {
@@ -349,7 +374,7 @@ static void update_hardware_channel(ChannelState *channel) {
     int count = 0;
 
     if (channel == NULL) {
-        lcd_display_update_channel(NULL, NULL, 0, CHANNEL_LENGTH);
+        lcd_display_update_channel(NULL, NULL, 0, canal_get_channel_length());
         return;
     }
 
@@ -361,7 +386,7 @@ static void update_hardware_channel(ChannelState *channel) {
         }
     }
 
-    lcd_display_update_channel(positions, types, count, CHANNEL_LENGTH);
+    lcd_display_update_channel(positions, types, count, canal_get_channel_length());
 }
 
 static void reorder_queue_by_scheduler(ReadyQueue *queue, SchedulerType scheduler) {
@@ -409,10 +434,10 @@ static void process_pending_ship_requests(
         }
 
         int ship_id = next_dynamic_ship_id++;
-        int burst_time = getDefaultBurstForType(request.type, CHANNEL_LENGTH);
+        int burst_time = getDefaultBurstForType(request.type, canal_get_channel_length());
         int priority = getDefaultPriorityForType(request.type);
 
-        next_dynamic_deadline += getDefaultDeadlineForType(request.type, CHANNEL_LENGTH);
+        next_dynamic_deadline += getDefaultDeadlineForType(request.type, canal_get_channel_length());
         int deadline = next_dynamic_deadline;
 
         char name[NAME_SIZE];
@@ -899,7 +924,7 @@ static int move_channel_tick(
             /*
              * El ultimo avance, desde la ultima posicion visible hacia
              * el oceano de salida, tambien consume una unidad de ejecucion.
-             * Asi remaining_time coincide con CHANNEL_LENGTH.
+             * Asi remaining_time coincide con canal_get_channel_length().
              */
             execute_ship_unit(boat);
 
@@ -954,7 +979,7 @@ static int move_channel_tick(
 }
 
 static void delay_channel_tick(void) {
-    vTaskDelay(pdMS_TO_TICKS(CHANNEL_TICK_MS));
+    vTaskDelay(pdMS_TO_TICKS(runtime_channel_tick_ms));
 }
 
 /* =========================================
@@ -1306,7 +1331,7 @@ void run_channel_flow(
     }
 
     lcd_display_update(left_queue, right_queue, NULL);
-    lcd_display_update_channel(NULL, NULL, 0, CHANNEL_LENGTH);
+    lcd_display_update_channel(NULL, NULL, 0, canal_get_channel_length());
     lcd_display_set_gates(0, 0);
     printf("\n[CANAL] Todas las colas estan vacias. El puente esta inactivo.\n");
 }

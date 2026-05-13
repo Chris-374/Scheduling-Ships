@@ -23,6 +23,14 @@
  */
 void canal_start_keyboard_input(void);
 
+/*
+ * Permite configurar el canal en tiempo de ejecucion desde config.txt.
+ */
+void canal_set_channel_length(int length);
+int canal_get_channel_length(void);
+void canal_set_tick_ms(int tick_ms);
+
+
 /* Enumerador de calendarizadores */
 typedef enum {
     SCHEDULER_RR = 0,

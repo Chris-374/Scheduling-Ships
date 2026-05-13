@@ -1,0 +1,36 @@
+# ================================
+# CONFIGURACION DEL PROYECTO
+# ================================
+# Valores permitidos:
+# scheduler: rr, priority, sjf, strn, fcfs, edf
+# channel_type: equidad, letrero, tico
+
+scheduler=rr
+channel_type=letrero
+
+# Largo logico del canal. Tambien afecta el tiempo total/deadline por defecto.
+channel_length=10
+
+# Milisegundos entre ticks del canal.
+# Menor valor = animacion mas rapida. Mayor valor = animacion mas lenta.
+boat_speed_ms=150
+
+# Cantidad de barcos ordenados/visibles en la cola de listos.
+ready_queue_ordered_count=4
+
+# Solo aplica si channel_type=letrero.
+sign_change_time=5
+
+# Solo aplica si channel_type=equidad.
+equity_w=2
+
+# Solo aplica a calendarizadores expropiativos como RR/STRN.
+quantum=2
+
+# Mantiene la carga inicial que ya tenia el proyecto.
+# Maximo recomendado: 4 por lado.
+initial_left_ships=2
+initial_right_ships=2
+
+# 1 habilita teclas 1-6 para crear barcos durante la ejecucion.
+enable_keyboard_input=1

@@ -30,6 +30,58 @@ const char *sideToString(Side side) {
     }
 }
 
+
+int getDefaultBurstForType(ShipType type, int channel_length) {
+    (void)type;
+
+    if (channel_length <= 0) {
+        channel_length = 1;
+    }
+
+    /*
+     * En este modelo, remaining_time representa cuantas unidades
+     * de avance le faltan al barco para cruzar el canal completo.
+     * Por eso todos los barcos empiezan con el largo del canal.
+     *
+     * La diferencia entre tipos se modela con:
+     * - movement_period() en canal.c para la velocidad fisica
+     * - prioridad para Priority
+     * - deadline para EDF
+     */
+    return channel_length;
+}
+
+int getDefaultDeadlineForType(ShipType type, int channel_length) {
+    int burst = getDefaultBurstForType(type, channel_length);
+
+    switch (type) {
+        case PATROL:
+            /* Tiempo real hard: deadline más exigente. */
+            return burst + 2;
+
+        case FISHING:
+            return burst + 5;
+
+        case NORMAL:
+        default:
+            return burst + 8;
+    }
+}
+
+int getDefaultPriorityForType(ShipType type) {
+    switch (type) {
+        case PATROL:
+            return 1;
+
+        case FISHING:
+            return 2;
+
+        case NORMAL:
+        default:
+            return 4;
+    }
+}
+
 /*
  * Esta funcion es la que ejecuta cada task real de FreeRTOS.
  *
@@ -92,7 +144,7 @@ static void shipTaskFunction(void *pvParameters) {
 
     ship->state = SHIP_FINISHED;
 
-    printf("[TERMINADO] %s termino su recorrido.\n", ship->name);
+    printf("[TERMINADO] %s termino su ejecucion como task.\n", ship->name);
 
     vTaskDelete(NULL);
 }
@@ -180,6 +232,7 @@ void wakeShipTask(ShipTask *ship) {
 
     xTaskNotifyGive(ship->handle);
 }
+
 
 int isShipFinished(const ShipTask *ship) {
     if (ship == NULL) {

@@ -3,6 +3,26 @@
 
 #include "ready_queue.h"
 
+/*
+ * Largo del canal.
+ * Cambie solo este valor si en la defensa el profesor pide otro tamaño.
+ * El remaining_time inicial de cada barco se calcula a partir de este valor.
+ */
+#define CHANNEL_LENGTH 10
+
+
+/*
+ * Habilita una task de teclado para crear barcos durante la ejecucion.
+ * Teclas:
+ * 1 = Normal izquierda
+ * 2 = Pesquera izquierda
+ * 3 = Patrulla izquierda
+ * 4 = Normal derecha
+ * 5 = Pesquera derecha
+ * 6 = Patrulla derecha
+ */
+void canal_start_keyboard_input(void);
+
 /* Enumerador de calendarizadores */
 typedef enum {
     SCHEDULER_RR = 0,

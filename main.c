@@ -56,7 +56,7 @@ static ReadyQueue right_queue;
  * SCHEDULER_FCFS
  * SCHEDULER_EDF
  */
-#define SELECTED_SCHEDULER SCHEDULER_RR
+#define SELECTED_SCHEDULER SCHEDULER_SJF
 #define SELECTED_CHANNEL CHANNEL_EQUITY
 #define CHANNEL_PARAM 2
 
@@ -147,6 +147,13 @@ void app_main(void) {
     lcd_display_init();
 
     /*
+     * Habilita la entrada por teclado durante la ejecucion:
+     * 1,2,3 agregan barcos a la izquierda.
+     * 4,5,6 agregan barcos a la derecha.
+     */
+    canal_start_keyboard_input();
+
+    /*
      * Creamos barcos como tasks reales de FreeRTOS.
      *
      * Parametros:
@@ -157,9 +164,9 @@ void app_main(void) {
      *     nombre,
      *     tipo,
      *     lado,
-     *     tiempo_total,
-     *     prioridad,
-     *     deadline
+     *     tiempo_total calculado desde CHANNEL_LENGTH,
+     *     prioridad calculada por tipo,
+     *     deadline calculado desde CHANNEL_LENGTH
      * );
      *
      * Para prioridad:
@@ -183,9 +190,9 @@ void app_main(void) {
         "L1_Normal",
         NORMAL,
         LEFT_SIDE,
-        5,
-        4,
-        12
+        getDefaultBurstForType(NORMAL, CHANNEL_LENGTH),
+        getDefaultPriorityForType(NORMAL),
+        getDefaultDeadlineForType(NORMAL, CHANNEL_LENGTH)
     );
 
     createShipTask(
@@ -194,9 +201,9 @@ void app_main(void) {
         "L2_Patrulla",
         PATROL,
         LEFT_SIDE,
-        3,
-        1,
-        5
+        getDefaultBurstForType(PATROL, CHANNEL_LENGTH),
+        getDefaultPriorityForType(PATROL),
+        getDefaultDeadlineForType(PATROL, CHANNEL_LENGTH)
     );
 
     createShipTask(
@@ -205,9 +212,9 @@ void app_main(void) {
         "R1_Pesquera",
         FISHING,
         RIGHT_SIDE,
-        4,
-        2,
-        8
+        getDefaultBurstForType(FISHING, CHANNEL_LENGTH),
+        getDefaultPriorityForType(FISHING),
+        getDefaultDeadlineForType(FISHING, CHANNEL_LENGTH)
     );
 
     createShipTask(
@@ -216,9 +223,9 @@ void app_main(void) {
         "R2_Normal",
         NORMAL,
         RIGHT_SIDE,
-        6,
-        5,
-        15
+        getDefaultBurstForType(NORMAL, CHANNEL_LENGTH),
+        getDefaultPriorityForType(NORMAL),
+        getDefaultDeadlineForType(NORMAL, CHANNEL_LENGTH)
     );
 
     /*

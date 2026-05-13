@@ -1,8 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
 
 #include "canal.h"
 #include "ship_tasks.h"
@@ -10,7 +12,6 @@
 #include "lcd_display.h"
 #include "schedulers/scheduler_policy.h"
 
-#define CHANNEL_LENGTH 10
 #define MAX_SHIPS_IN_CHANNEL 4
 #define CHANNEL_TICK_MS 150
 
@@ -28,6 +29,107 @@ typedef struct {
     int direction;
     int length;
 } ChannelState;
+
+typedef struct {
+    ShipType type;
+    Side side;
+} ShipAddRequest;
+
+#define SHIP_REQUEST_QUEUE_SIZE 10
+
+static QueueHandle_t ship_request_queue = NULL;
+static int next_dynamic_ship_id = 100;
+static int next_dynamic_deadline = 20;
+
+static int key_to_ship_request(int key, ShipAddRequest *request) {
+    if (request == NULL) {
+        return 0;
+    }
+
+    switch (key) {
+        case '1':
+            request->side = LEFT_SIDE;
+            request->type = NORMAL;
+            return 1;
+        case '2':
+            request->side = LEFT_SIDE;
+            request->type = FISHING;
+            return 1;
+        case '3':
+            request->side = LEFT_SIDE;
+            request->type = PATROL;
+            return 1;
+        case '4':
+            request->side = RIGHT_SIDE;
+            request->type = NORMAL;
+            return 1;
+        case '5':
+            request->side = RIGHT_SIDE;
+            request->type = FISHING;
+            return 1;
+        case '6':
+            request->side = RIGHT_SIDE;
+            request->type = PATROL;
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+static void keyboard_input_task(void *pvParameters) {
+    (void)pvParameters;
+
+    printf("\n[TECLADO] Entrada dinamica habilitada.\n");
+    printf("[TECLADO] 1 Normal-Izq | 2 Pesquera-Izq | 3 Patrulla-Izq\n");
+    printf("[TECLADO] 4 Normal-Der | 5 Pesquera-Der | 6 Patrulla-Der\n");
+
+    while (1) {
+        int key = getchar();
+        ShipAddRequest request;
+
+        if (key_to_ship_request(key, &request)) {
+            if (ship_request_queue != NULL) {
+                if (xQueueSend(ship_request_queue, &request, 0) == pdPASS) {
+                    printf("[TECLADO] Solicitud recibida: crear barco %s en %s.\n",
+                           shipTypeToString(request.type),
+                           sideToString(request.side));
+                } else {
+                    printf("[TECLADO] Cola de solicitudes llena. Intente de nuevo.\n");
+                }
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+}
+
+void canal_start_keyboard_input(void) {
+    if (ship_request_queue == NULL) {
+        ship_request_queue = xQueueCreate(
+            SHIP_REQUEST_QUEUE_SIZE,
+            sizeof(ShipAddRequest)
+        );
+
+        if (ship_request_queue == NULL) {
+            printf("[ERROR] No se pudo crear la cola de solicitudes de teclado.\n");
+            return;
+        }
+    }
+
+    BaseType_t result = xTaskCreatePinnedToCore(
+        keyboard_input_task,
+        "KeyboardInputTask",
+        4096,
+        NULL,
+        1,
+        NULL,
+        tskNO_AFFINITY
+    );
+
+    if (result != pdPASS) {
+        printf("[ERROR] No se pudo crear la task de teclado.\n");
+    }
+}
 
 static const char *side_name(int side) {
     return (side == LEFT_SIDE) ? "Izquierda" : "Derecha";
@@ -241,6 +343,105 @@ static void print_channel(ChannelState *channel) {
     printf("\n");
 }
 
+
+static void reorder_queue_by_scheduler(ReadyQueue *queue, SchedulerType scheduler) {
+    if (queue == NULL) {
+        return;
+    }
+
+    if (scheduler == SCHEDULER_RR || scheduler == SCHEDULER_FCFS) {
+        return;
+    }
+
+    ReadyNode *current = queue->front;
+    queue->front = NULL;
+    queue->rear = NULL;
+    queue->size = 0;
+
+    while (current != NULL) {
+        ReadyNode *next = current->next;
+        ShipTask *ship = current->ship;
+
+        free(current);
+        scheduler_enqueue_ordered(queue, ship, scheduler);
+
+        current = next;
+    }
+}
+
+static void process_pending_ship_requests(
+    ReadyQueue *left_queue,
+    ReadyQueue *right_queue,
+    SchedulerType scheduler
+) {
+    if (ship_request_queue == NULL) {
+        return;
+    }
+
+    ShipAddRequest request;
+
+    while (xQueueReceive(ship_request_queue, &request, 0) == pdTRUE) {
+        ShipTask *ship = (ShipTask *)malloc(sizeof(ShipTask));
+
+        if (ship == NULL) {
+            printf("[ERROR] No se pudo reservar memoria para el barco dinamico.\n");
+            continue;
+        }
+
+        int ship_id = next_dynamic_ship_id++;
+        int burst_time = getDefaultBurstForType(request.type, CHANNEL_LENGTH);
+        int priority = getDefaultPriorityForType(request.type);
+
+        next_dynamic_deadline += getDefaultDeadlineForType(request.type, CHANNEL_LENGTH);
+        int deadline = next_dynamic_deadline;
+
+        char name[NAME_SIZE];
+        snprintf(
+            name,
+            sizeof(name),
+            "%c%d_%s",
+            request.side == LEFT_SIDE ? 'L' : 'R',
+            ship_id,
+            shipTypeToString(request.type)
+        );
+
+        if (!createShipTask(
+                ship,
+                ship_id,
+                name,
+                request.type,
+                request.side,
+                burst_time,
+                priority,
+                deadline
+            )) {
+            free(ship);
+            continue;
+        }
+
+        ReadyQueue *target_queue = queue_for_side(
+            request.side,
+            left_queue,
+            right_queue
+        );
+
+        if (!enqueue(target_queue, ship)) {
+            printf("[ERROR] No se pudo insertar %s en la cola.\n", ship->name);
+            continue;
+        }
+
+        reorder_queue_by_scheduler(target_queue, scheduler);
+
+        printf("[NUEVO BARCO] %s agregado a %s. Se reorganiza la cola con %s.\n",
+               ship->name,
+               target_queue->name,
+               scheduler_to_string(scheduler));
+
+        printQueue(target_queue);
+        lcd_display_update(left_queue, right_queue, NULL);
+    }
+}
+
 static void clear_saved_channel_context(ShipTask *ship) {
     if (ship == NULL) {
         return;
@@ -281,6 +482,13 @@ static void complete_ship_if_needed(ShipTask *ship) {
         return;
     }
 
+    /*
+     * Caso normal: al cruzar el ultimo paso de salida, execute_ship_unit()
+     * deja remaining_time en 0 y la task se marca como terminada.
+     *
+     * Este while queda como proteccion por si en algun momento se cambia
+     * manualmente el burst_time y queda mayor que el largo del canal.
+     */
     while (!isShipFinished(ship)) {
         wakeShipTask(ship);
         wait_one_tick(ship);
@@ -529,6 +737,14 @@ static void move_channel_tick(
 
         if (exit_reached(next_position, boat->direction)) {
             printf("[CANAL] %s llegó al extremo de salida.\n", ship->name);
+
+            /*
+             * El ultimo avance, desde la ultima posicion visible hacia
+             * el oceano de salida, tambien consume una unidad de ejecucion.
+             * Asi remaining_time coincide con CHANNEL_LENGTH.
+             */
+            execute_ship_unit(boat);
+
             lcd_display_update(left_queue, right_queue, ship);
             finish_from_channel(channel, selected);
             continue;
@@ -600,6 +816,8 @@ static void run_equity(
     while (!isQueueEmpty(left_queue) ||
            !isQueueEmpty(right_queue) ||
            !channel_is_empty(&channel)) {
+        process_pending_ship_requests(left_queue, right_queue, scheduler);
+
         ReadyQueue *active_queue = queue_for_side(
             current_side,
             left_queue,
@@ -670,6 +888,8 @@ static void run_sign(
     while (!isQueueEmpty(left_queue) ||
            !isQueueEmpty(right_queue) ||
            !channel_is_empty(&channel)) {
+        process_pending_ship_requests(left_queue, right_queue, scheduler);
+
         ReadyQueue *active_queue = queue_for_side(
             current_side,
             left_queue,
@@ -737,6 +957,8 @@ static void run_tico(
     while (!isQueueEmpty(left_queue) ||
            !isQueueEmpty(right_queue) ||
            !channel_is_empty(&channel)) {
+        process_pending_ship_requests(left_queue, right_queue, scheduler);
+
         ReadyQueue *active_queue = queue_for_side(
             current_side,
             left_queue,

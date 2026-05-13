@@ -66,11 +66,26 @@ int createShipTask(
 
 void wakeShipTask(ShipTask *ship);
 
+
 void setShipSchedulerHandle(ShipTask *ship, TaskHandle_t scheduler_handle);
 
 int isShipFinished(const ShipTask *ship);
 
 const char *shipTypeToString(ShipType type);
 const char *sideToString(Side side);
+
+/*
+ * Valores por defecto calculados a partir del largo del canal.
+ *
+ * Modelo usado:
+ *   remaining_time inicial = channel_length
+ *
+ * Esto significa que el tiempo restante representa cuantas unidades
+ * de avance faltan para cruzar el canal completo. Las diferencias
+ * entre tipos se reflejan en velocidad, prioridad y deadline.
+ */
+int getDefaultBurstForType(ShipType type, int channel_length);
+int getDefaultDeadlineForType(ShipType type, int channel_length);
+int getDefaultPriorityForType(ShipType type);
 
 #endif

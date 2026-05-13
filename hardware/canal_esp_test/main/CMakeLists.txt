@@ -18,4 +18,9 @@ idf_component_register(
         "."
         "../../.."
         "../../../schedulers"
+
+    REQUIRES
+        esp_driver_i2c
+        esp_driver_gpio
+        led_strip
 )

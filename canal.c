@@ -343,6 +343,26 @@ static void print_channel(ChannelState *channel) {
     printf("\n");
 }
 
+static void update_hardware_channel(ChannelState *channel) {
+    int positions[MAX_SHIPS_IN_CHANNEL];
+    ShipType types[MAX_SHIPS_IN_CHANNEL];
+    int count = 0;
+
+    if (channel == NULL) {
+        lcd_display_update_channel(NULL, NULL, 0, CHANNEL_LENGTH);
+        return;
+    }
+
+    for (int i = 0; i < MAX_SHIPS_IN_CHANNEL; i++) {
+        if (channel->ships[i].active && channel->ships[i].ship != NULL) {
+            positions[count] = channel->ships[i].position;
+            types[count] = channel->ships[i].ship->type;
+            count++;
+        }
+    }
+
+    lcd_display_update_channel(positions, types, count, CHANNEL_LENGTH);
+}
 
 static void reorder_queue_by_scheduler(ReadyQueue *queue, SchedulerType scheduler) {
     if (queue == NULL) {
@@ -543,6 +563,8 @@ static void finish_from_channel(ChannelState *channel, int index) {
 
         printf("[CANAL] %s salió del canal por el extremo contrario.\n",
                ship->name);
+
+        lcd_display_show_arrival(ship);
     }
 
     remove_from_channel(channel, index);
@@ -641,6 +663,7 @@ static int admit_one_ship(
 
     lcd_display_update(left_queue, right_queue, ship);
     print_channel(channel);
+    update_hardware_channel(channel);
 
     return 1;
 }
@@ -789,6 +812,7 @@ static void move_channel_tick(
     }
 
     print_channel(channel);
+    update_hardware_channel(channel);
 }
 
 static void delay_channel_tick(void) {
@@ -812,6 +836,9 @@ static void run_equity(
     init_channel(&channel, current_side);
 
     printf("\n[CANAL] Iniciando control de flujo: EQUIDAD (W = %d)\n", W);
+    lcd_display_set_direction(current_side);
+    lcd_display_set_gates(0, 0);
+    update_hardware_channel(&channel);
 
     while (!isQueueEmpty(left_queue) ||
            !isQueueEmpty(right_queue) ||
@@ -836,6 +863,8 @@ static void run_equity(
                 current_side = opposite_side(current_side);
                 channel.direction = current_side;
                 admitted_this_turn = 0;
+
+                lcd_display_set_direction(current_side);
 
                 printf("\n[CANAL] Cambio de sentido. Atendiendo a la cola %s.\n",
                        side_name(current_side));
@@ -884,6 +913,9 @@ static void run_sign(
 
     printf("\n[CANAL] Iniciando control de flujo: LETRERO (Tiempo = %d ticks)\n",
            sign_duration);
+    lcd_display_set_direction(current_side);
+    lcd_display_set_gates(0, 0);
+    update_hardware_channel(&channel);
 
     while (!isQueueEmpty(left_queue) ||
            !isQueueEmpty(right_queue) ||
@@ -908,6 +940,8 @@ static void run_sign(
                 current_side = opposite_side(current_side);
                 channel.direction = current_side;
                 elapsed_time = 0;
+
+                lcd_display_set_direction(current_side);
 
                 printf("\n[CANAL] El letrero cambió. Nuevo sentido: %s.\n",
                        side_name(current_side));
@@ -953,6 +987,9 @@ static void run_tico(
 
     printf("\n[CANAL] Iniciando control de flujo: TICO\n");
     printf("[CANAL] No hay control estricto, pero se evita choque por posiciones.\n");
+    lcd_display_set_direction(current_side);
+    lcd_display_set_gates(0, 0);
+    update_hardware_channel(&channel);
 
     while (!isQueueEmpty(left_queue) ||
            !isQueueEmpty(right_queue) ||
@@ -976,6 +1013,8 @@ static void run_tico(
             !isQueueEmpty(other_queue)) {
             current_side = opposite_side(current_side);
             channel.direction = current_side;
+
+            lcd_display_set_direction(current_side);
 
             printf("\n[CANAL] TICO: cediendo paso al lado %s.\n",
                    side_name(current_side));
@@ -1055,5 +1094,7 @@ void run_channel_flow(
     }
 
     lcd_display_update(left_queue, right_queue, NULL);
+    lcd_display_update_channel(NULL, NULL, 0, CHANNEL_LENGTH);
+    lcd_display_set_gates(0, 0);
     printf("\n[CANAL] Todas las colas estan vacias. El puente esta inactivo.\n");
 }

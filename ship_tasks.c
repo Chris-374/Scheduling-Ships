@@ -32,23 +32,34 @@ const char *sideToString(Side side) {
 
 
 int getDefaultBurstForType(ShipType type, int channel_length) {
-    (void)type;
-
     if (channel_length <= 0) {
         channel_length = 1;
     }
 
     /*
-     * En este modelo, remaining_time representa cuantas unidades
-     * de avance le faltan al barco para cruzar el canal completo.
-     * Por eso todos los barcos empiezan con el largo del canal.
+     * Modelo actualizado:
+     * El tiempo restante representa el costo estimado de ejecucion
+     * del barco/proceso, no directamente su posicion fisica.
      *
-     * La diferencia entre tipos se modela con:
-     * - movement_period() en canal.c para la velocidad fisica
-     * - prioridad para Priority
-     * - deadline para EDF
+     * Todos los barcos tienen como minimo channel_length para evitar
+     * que terminen antes de cruzar el canal completo.
+     *
+     * Diferencias por tipo:
+     * - Patrulla: mas urgente / menor tiempo
+     * - Pesquera: intermedia
+     * - Normal: mas lenta / mayor tiempo
      */
-    return channel_length;
+    switch (type) {
+        case PATROL:
+            return channel_length;
+
+        case FISHING:
+            return channel_length + 2;
+
+        case NORMAL:
+        default:
+            return channel_length + 5;
+    }
 }
 
 int getDefaultDeadlineForType(ShipType type, int channel_length) {

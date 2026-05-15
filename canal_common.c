@@ -1,5 +1,53 @@
 #include "canal_internal.h"
 
+static int g_channel_length = CHANNEL_LENGTH_DEFAULT;
+static int g_channel_tick_ms = 150;
+static int g_proximity_block_ms = 3000;
+
+static int clamp_runtime_value(int value, int min_value, int max_value)
+{
+    if (value < min_value) {
+        return min_value;
+    }
+
+    if (value > max_value) {
+        return max_value;
+    }
+
+    return value;
+}
+
+void canal_set_runtime_config(
+    int channel_length,
+    int tick_ms,
+    int proximity_block_ms
+) {
+    g_channel_length = clamp_runtime_value(channel_length, 1, MAX_SHIPS_IN_CHANNEL);
+    g_channel_tick_ms = clamp_runtime_value(tick_ms, 20, 5000);
+    g_proximity_block_ms = clamp_runtime_value(proximity_block_ms, 100, 30000);
+
+    printf("[CANAL] Config runtime: largo=%d tick=%dms interrupcion=%dms\n",
+           g_channel_length,
+           g_channel_tick_ms,
+           g_proximity_block_ms);
+}
+
+int canal_get_channel_length(void)
+{
+    return g_channel_length;
+}
+
+int canal_get_channel_tick_ms(void)
+{
+    return g_channel_tick_ms;
+}
+
+int canal_get_proximity_block_ms(void)
+{
+    return g_proximity_block_ms;
+}
+
+
 const char *canal_side_name(int side) {
     return (side == LEFT_SIDE) ? "Izquierda" : "Derecha";
 }
@@ -23,7 +71,7 @@ ReadyQueue *canal_queue_for_side(
 }
 
 int canal_entry_position(int side) {
-    return (side == LEFT_SIDE) ? 0 : CHANNEL_LENGTH - 1;
+    return (side == LEFT_SIDE) ? 0 : canal_get_channel_length() - 1;
 }
 
 int canal_movement_step(int side) {
@@ -32,7 +80,7 @@ int canal_movement_step(int side) {
 
 int canal_exit_reached(int position, int direction) {
     if (direction == LEFT_SIDE) {
-        return position >= CHANNEL_LENGTH;
+        return position >= canal_get_channel_length();
     }
 
     return position < 0;
@@ -97,7 +145,7 @@ void canal_init_channel(ChannelState *channel, int direction) {
     }
 
     channel->direction = direction;
-    channel->length = CHANNEL_LENGTH;
+    channel->length = canal_get_channel_length();
 
     for (int i = 0; i < MAX_SHIPS_IN_CHANNEL; i++) {
         channel->ships[i].ship = NULL;
@@ -202,7 +250,7 @@ void canal_print_channel(ChannelState *channel) {
 
     printf("[CANAL] ");
 
-    for (int pos = 0; pos < CHANNEL_LENGTH; pos++) {
+    for (int pos = 0; pos < canal_get_channel_length(); pos++) {
         ShipTask *ship_here = NULL;
 
         for (int i = 0; i < MAX_SHIPS_IN_CHANNEL; i++) {
@@ -231,7 +279,7 @@ void canal_update_hardware_channel(ChannelState *channel) {
     int count = 0;
 
     if (channel == NULL) {
-        lcd_display_update_channel(NULL, NULL, 0, CHANNEL_LENGTH);
+        lcd_display_update_channel(NULL, NULL, 0, canal_get_channel_length());
         return;
     }
 
@@ -243,7 +291,7 @@ void canal_update_hardware_channel(ChannelState *channel) {
         }
     }
 
-    lcd_display_update_channel(positions, types, count, CHANNEL_LENGTH);
+    lcd_display_update_channel(positions, types, count, canal_get_channel_length());
 }
 
 void canal_reorder_queue_by_scheduler(ReadyQueue *queue, SchedulerType scheduler) {
@@ -314,7 +362,7 @@ static void complete_ship_if_needed(ShipTask *ship) {
 
     /*
      * Con el modelo actual, remaining_time se calcula a partir de
-     * CHANNEL_LENGTH. Por eso el barco deberia terminar justo cuando
+     * canal_get_channel_length(). Por eso el barco deberia terminar justo cuando
      * realiza el ultimo avance de salida.
      *
      * No se usa while para forzar la terminacion. Si algo queda
@@ -825,7 +873,7 @@ int canal_move_channel_tick(
             /*
              * El ultimo avance, desde la ultima posicion visible hacia
              * el oceano de salida, tambien consume una unidad de ejecucion.
-             * Asi remaining_time coincide con CHANNEL_LENGTH.
+             * Asi remaining_time coincide con canal_get_channel_length().
              */
             execute_ship_unit(boat);
 
@@ -880,7 +928,7 @@ int canal_move_channel_tick(
 }
 
 void canal_delay_channel_tick(void) {
-    vTaskDelay(pdMS_TO_TICKS(CHANNEL_TICK_MS));
+    vTaskDelay(pdMS_TO_TICKS(canal_get_channel_tick_ms()));
 }
 
 /*
@@ -930,7 +978,7 @@ int canal_handle_proximity_interrupt(
     lcd_display_update(left_queue, right_queue, NULL);
 
     printf("[INTERRUPCION] Buque externo pasando. Canal protegido.\n");
-    vTaskDelay(pdMS_TO_TICKS(PROXIMITY_BLOCK_MS));
+    vTaskDelay(pdMS_TO_TICKS(canal_get_proximity_block_ms()));
 
     printf("[INTERRUPCION] Buque externo paso. Levantando agujas y reanudando.\n");
     lcd_display_set_gates(0, 0);

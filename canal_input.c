@@ -165,10 +165,10 @@ void canal_process_pending_ship_requests(
         }
 
         int ship_id = next_dynamic_ship_id++;
-        int burst_time = getDefaultBurstForType(request.type, CHANNEL_LENGTH);
+        int burst_time = getDefaultBurstForType(request.type, canal_get_channel_length());
         int priority = getDefaultPriorityForType(request.type);
 
-        next_dynamic_deadline += getDefaultDeadlineForType(request.type, CHANNEL_LENGTH);
+        next_dynamic_deadline += getDefaultDeadlineForType(request.type, canal_get_channel_length());
         int deadline = next_dynamic_deadline;
 
         char name[NAME_SIZE];

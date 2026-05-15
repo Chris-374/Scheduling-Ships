@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS
         "../../../main.c"
+        "../../../app_config.c"
         "../../../canal.c"
         "../../../canal_input.c"
         "../../../canal_common.c"
@@ -28,4 +29,7 @@ idf_component_register(
         esp_driver_i2c
         esp_driver_gpio
         led_strip
+
+    EMBED_TXTFILES
+        "../../../config.txt"
 )

@@ -15,11 +15,10 @@
 #include "lcd_display.h"
 #include "schedulers/scheduler_policy.h"
 
-#define MAX_SHIPS_IN_CHANNEL 10
-#define CHANNEL_TICK_MS 150
+#define MAX_SHIPS_IN_CHANNEL 32
 #define SHIP_REQUEST_QUEUE_SIZE 10
 #define PROXIMITY_EVENT_QUEUE_SIZE 4
-#define PROXIMITY_BLOCK_MS 3000
+
 
 typedef struct {
     ShipTask *ship;

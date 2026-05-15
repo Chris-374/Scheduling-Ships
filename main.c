@@ -2,316 +2,196 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+
+#include "app_config.h"
 #include "canal.h"
 #include "ship_tasks.h"
 #include "ready_queue.h"
 #include "lcd_display.h"
+#include "schedulers/scheduler_policy.h"
 
-/*
- * Barcos reales.
- *
- * Por ahora son globales/static para que sigan existiendo durante
- * toda la ejecucion del programa.
- */
-static ShipTask ship1;
-static ShipTask ship2;
-static ShipTask ship3;
-static ShipTask ship4;
-static ShipTask ship5;
-static ShipTask ship6;
-static ShipTask ship7;
-static ShipTask ship8;
+#define INITIAL_TASK_STACK_SIZE 4096
 
-/*
- * Colas de listos.
- *
- * Simulan los dos lados del canal:
- * - izquierda
- * - derecha
- */
+static AppConfig app_config;
+
+static ShipTask left_ships[CONFIG_MAX_SHIPS_PER_SIDE];
+static ShipTask right_ships[CONFIG_MAX_SHIPS_PER_SIDE];
+
 static ReadyQueue left_queue;
 static ReadyQueue right_queue;
 
-/*
- * Calendarizadores disponibles.
- *
- * El enunciado pide que el calendarizador sea un parametro
- * de cada ejecucion. Por ahora lo escogemos con un define.
- *
- * Mas adelante esto puede venir de:
- * - archivo de configuracion
- * - menu por consola
- * - boton/interfaz
- */
+static const char *side_prefix(Side side)
+{
+    return side == LEFT_SIDE ? "L" : "R";
+}
 
-/*
- * Cambiar aqui para probar:
- *
- * SCHEDULER_RR
- * SCHEDULER_PRIORITY
- * SCHEDULER_SJF
- * SCHEDULER_STRN
- * SCHEDULER_FCFS
- * SCHEDULER_EDF
- */
+static const char *ship_type_suffix(ShipType type)
+{
+    switch (type) {
+        case NORMAL:
+            return "Normal";
+        case FISHING:
+            return "Pesquera";
+        case PATROL:
+            return "Patrulla";
+        default:
+            return "Desconocido";
+    }
+}
 
-#define SELECTED_SCHEDULER SCHEDULER_FCFS
-#define SELECTED_CHANNEL CHANNEL_EQUITY
-#define CHANNEL_PARAM 2
-#
+static int create_initial_ship(
+    ShipTask *ship,
+    int id,
+    int index,
+    ShipType type,
+    Side side
+) {
+    char name[NAME_SIZE];
+    int burst_time;
+    int priority;
+    int deadline;
 
-/*
- * Esta es la task del calendarizador.
- *
- * Su trabajo es ejecutar el algoritmo seleccionado sobre las dos colas.
- */
-void schedulerTask(void *pvParameters) {
-    int quantum = 2;
+    if (ship == NULL) {
+        return 0;
+    }
+
+    snprintf(
+        name,
+        sizeof(name),
+        "%s%d_%s",
+        side_prefix(side),
+        index,
+        ship_type_suffix(type)
+    );
+
+    burst_time = getDefaultBurstForType(type, app_config.channel_length);
+    priority = getDefaultPriorityForType(type);
+    deadline = getDefaultDeadlineForType(type, app_config.channel_length);
+
+    return createShipTask(
+        ship,
+        id,
+        name,
+        type,
+        side,
+        burst_time,
+        priority,
+        deadline
+    );
+}
+
+static void create_initial_ships_for_side(
+    ShipTask ships[],
+    ShipType types[],
+    int count,
+    Side side,
+    ReadyQueue *queue,
+    int *next_id
+) {
+    for (int i = 0; i < count && i < CONFIG_MAX_SHIPS_PER_SIDE; i++) {
+        if (create_initial_ship(
+                &ships[i],
+                *next_id,
+                i + 1,
+                types[i],
+                side
+            )) {
+            scheduler_enqueue_ordered(queue, &ships[i], app_config.scheduler);
+            (*next_id)++;
+        }
+    }
+}
+
+static void schedulerTask(void *pvParameters)
+{
+    (void)pvParameters;
+
+    int channel_param;
+    int max_ticks;
 
     printf("\n[SCHEDULER] Iniciando calendarizador\n");
 
     printQueue(&left_queue);
     printQueue(&right_queue);
 
-    int max_ticks = 0; 
+    printf("\n[SCHEDULER] Calendarizador seleccionado: %s\n",
+           app_config_scheduler_name(app_config.scheduler));
 
-    switch (SELECTED_SCHEDULER) {
-        case SCHEDULER_RR:
-            printf("\n[SCHEDULER] Calendarizador seleccionado: Round Robin\n");
-            max_ticks = quantum;
-            /* runRoundRobinFreeRTOSTwoQueues(&left_queue, &right_queue, quantum); */
-            break;
+    channel_param = app_config_channel_param(&app_config);
+    max_ticks = app_config_max_ticks(&app_config);
 
-        case SCHEDULER_PRIORITY:
-            printf("\n[SCHEDULER] Calendarizador seleccionado: Prioridad\n");
-            max_ticks = 0;
-            /* runPriorityFreeRTOSTwoQueues(&left_queue, &right_queue); */
-            break;
-
-        case SCHEDULER_SJF:
-            printf("\n[SCHEDULER] Calendarizador seleccionado: SJF\n");
-            max_ticks = 0;
-            /* runSJFFreeRTOSTwoQueues(&left_queue, &right_queue); */
-            break;
-
-        case SCHEDULER_STRN:
-            printf("\n[SCHEDULER] Calendarizador seleccionado: STRN\n");
-            max_ticks = 1;
-            /* runSTRNFreeRTOSTwoQueues(&left_queue, &right_queue); */
-            break;
-
-        case SCHEDULER_FCFS:
-            printf("\n[SCHEDULER] Calendarizador seleccionado: FCFS\n");
-            max_ticks = 0;
-            /* runFCFSFreeRTOSTwoQueues(&left_queue, &right_queue); */
-            break;
-
-        case SCHEDULER_EDF:
-            printf("\n[SCHEDULER] Calendarizador seleccionado: EDF\n");
-            max_ticks = 0;
-            /* runEDFFreeRTOSTwoQueues(&left_queue, &right_queue); */
-            break;
-
-        default:
-            printf("\n[ERROR] Calendarizador desconocido.\n");
-            break;
-    }
-
-    /* LLAMADA AL CANAL CON LOS 5 PARÁMETROS */
-    /* Ponga esto: Función maestra que recibe ambas configuraciones */
-    run_channel_flow(SELECTED_CHANNEL, &left_queue, &right_queue, CHANNEL_PARAM, max_ticks, SELECTED_SCHEDULER);
+    run_channel_flow(
+        app_config.channel_type,
+        &left_queue,
+        &right_queue,
+        channel_param,
+        max_ticks,
+        app_config.scheduler
+    );
 
     printf("\n[SCHEDULER] Calendarizacion terminada.\n");
 
-    /*
-     * Se limpian los nodos de las colas.
-     * Esto no elimina las tasks reales, solo limpia las colas.
-     */
     destroyQueue(&left_queue);
     destroyQueue(&right_queue);
 
     vTaskDelete(NULL);
 }
-/*
- * Punto de entrada de ESP-IDF.
- */
-void app_main(void) {
+
+void app_main(void)
+{
+    int next_id = 1;
+
     printf("\n===== SCHEDULING SHIPS CON TASKS REALES =====\n");
 
-    /*
-     * Inicializamos las dos colas de listos.
-     */
+    app_config_load(&app_config);
+    app_config_print(&app_config);
+
+    canal_set_runtime_config(
+        app_config.channel_length,
+        app_config.boat_speed_ms,
+        app_config.proximity_block_ms
+    );
+
+    lcd_display_set_config(
+        app_config.physical_led_count,
+        app_config.visible_queue_count
+    );
+
     initQueue(&left_queue, "Cola izquierda");
     initQueue(&right_queue, "Cola derecha");
 
     lcd_display_init();
 
-    /*
-     * Habilita la entrada por teclado durante la ejecucion:
-     * 1,2,3 agregan barcos a la izquierda.
-     * 4,5,6 agregan barcos a la derecha.
-     */
-    canal_start_keyboard_input();
+    if (app_config.enable_keyboard_input) {
+        canal_start_keyboard_input();
+    } else {
+        printf("[TECLADO] Entrada dinamica deshabilitada por config.txt.\n");
+    }
 
-    /*
-     * Creamos barcos como tasks reales de FreeRTOS.
-     *
-     * Parametros:
-     *
-     * createShipTask(
-     *     &barco,
-     *     id,
-     *     nombre,
-     *     tipo,
-     *     lado,
-     *     tiempo_total calculado desde CHANNEL_LENGTH,
-     *     prioridad calculada por tipo,
-     *     deadline calculado desde CHANNEL_LENGTH
-     * );
-     *
-     * Para prioridad:
-     * menor numero = mayor prioridad.
-     *
-     * Para SJF:
-     * menor tiempo_total = corre primero.
-     *
-     * Para STRN:
-     * menor tiempo restante = corre primero.
-     *
-     * Para FCFS:
-     * primero que entra a la cola = primero que corre.
-     *
-     * Para EDF:
-     * menor deadline = corre primero.
-     */
-    createShipTask(
-        &ship1,
-        1,
-        "L1_Normal",
-        NORMAL,
+    create_initial_ships_for_side(
+        left_ships,
+        app_config.initial_left,
+        app_config.initial_left_count,
         LEFT_SIDE,
-        getDefaultBurstForType(NORMAL, CHANNEL_LENGTH),
-        getDefaultPriorityForType(NORMAL),
-        getDefaultDeadlineForType(NORMAL, CHANNEL_LENGTH)
+        &left_queue,
+        &next_id
     );
 
-    createShipTask(
-        &ship2,
-        2,
-        "L2_Patrulla",
-        PATROL,
-        LEFT_SIDE,
-        getDefaultBurstForType(PATROL, CHANNEL_LENGTH),
-        getDefaultPriorityForType(PATROL),
-        getDefaultDeadlineForType(PATROL, CHANNEL_LENGTH)
-    );
-
-    createShipTask(
-        &ship3,
-        3,
-        "R1_Pesquera",
-        FISHING,
+    create_initial_ships_for_side(
+        right_ships,
+        app_config.initial_right,
+        app_config.initial_right_count,
         RIGHT_SIDE,
-        getDefaultBurstForType(FISHING, CHANNEL_LENGTH),
-        getDefaultPriorityForType(FISHING),
-        getDefaultDeadlineForType(FISHING, CHANNEL_LENGTH)
+        &right_queue,
+        &next_id
     );
-
-    createShipTask(
-        &ship4,
-        4,
-        "R2_Normal",
-        NORMAL,
-        RIGHT_SIDE,
-        getDefaultBurstForType(NORMAL, CHANNEL_LENGTH),
-        getDefaultPriorityForType(NORMAL),
-        getDefaultDeadlineForType(NORMAL, CHANNEL_LENGTH)
-    );
-
-        createShipTask(
-        &ship5,
-        5,
-        "L3_Pesquera",
-        FISHING,
-        LEFT_SIDE,
-        getDefaultBurstForType(FISHING, CHANNEL_LENGTH),
-        getDefaultPriorityForType(FISHING),
-        getDefaultDeadlineForType(FISHING, CHANNEL_LENGTH)
-    );
-
-    createShipTask(
-        &ship6,
-        6,
-        "L4_Normal",
-        NORMAL,
-        LEFT_SIDE,
-        getDefaultBurstForType(NORMAL, CHANNEL_LENGTH),
-        getDefaultPriorityForType(NORMAL),
-        getDefaultDeadlineForType(NORMAL, CHANNEL_LENGTH)
-    );
-
-    createShipTask(
-        &ship7,
-        7,
-        "R3_Patrulla",
-        PATROL,
-        RIGHT_SIDE,
-        getDefaultBurstForType(PATROL, CHANNEL_LENGTH),
-        getDefaultPriorityForType(PATROL),
-        getDefaultDeadlineForType(PATROL, CHANNEL_LENGTH)
-    );
-
-    createShipTask(
-        &ship8,
-        8,
-        "R4_Pesquera",
-        FISHING,
-        RIGHT_SIDE,
-        getDefaultBurstForType(FISHING, CHANNEL_LENGTH),
-        getDefaultPriorityForType(FISHING),
-        getDefaultDeadlineForType(FISHING, CHANNEL_LENGTH)
-    );
-
-    /*
-     * Insertamos los barcos en las colas.
-     *
-     * Importante:
-     * Estamos metiendo punteros a ShipTask reales.
-     *
-     * Cola izquierda:
-     * - L1_Normal, deadline 12
-     * - L2_Patrulla, deadline 5
-     *
-     * Cola derecha:
-     * - R1_Pesquera, deadline 8
-     * - R2_Normal, deadline 15
-     * - R3_Patrulla, deadline 10
-     * - R4_Pesquera, deadline 12
-     *
-     * Para EDF este valor importa directamente.
-     */
-    enqueue(&left_queue, &ship1);
-    enqueue(&left_queue, &ship2);
-    enqueue(&left_queue, &ship5);
-    enqueue(&left_queue, &ship6);
-
-    enqueue(&right_queue, &ship3);
-    enqueue(&right_queue, &ship4);
-    enqueue(&right_queue, &ship7);
-    enqueue(&right_queue, &ship8);
 
     lcd_display_update(&left_queue, &right_queue, NULL);
-    
-    /*
-     * Creamos la task del calendarizador.
-     *
-     * Esta task sera la que despierte a los barcos segun
-     * el algoritmo seleccionado.
-     */
+
     BaseType_t result = xTaskCreatePinnedToCore(
         schedulerTask,
         "SchedulerTask",
-        4096,
+        INITIAL_TASK_STACK_SIZE,
         NULL,
         2,
         NULL,

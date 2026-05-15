@@ -49,7 +49,7 @@ void run_channel_flow(
     }
 
     lcd_display_update(left_queue, right_queue, NULL);
-    lcd_display_update_channel(NULL, NULL, 0, CHANNEL_LENGTH);
+    lcd_display_update_channel(NULL, NULL, 0, canal_get_channel_length());
     lcd_display_set_gates(0, 0);
     printf("\n[CANAL] Todas las colas estan vacias. El puente esta inactivo.\n");
 }

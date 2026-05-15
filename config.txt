@@ -1,0 +1,73 @@
+# =========================================
+# Scheduling Ships - Configuracion editable
+# =========================================
+# Valores permitidos:
+# scheduler: rr, priority, sjf, strn, fcfs, edf
+# channel_type: equidad, letrero, tico
+# Tipos de barco: normal, pesquera, patrulla
+
+scheduler=rr
+channel_type=equidad
+
+# Largo logico del canal. El remaining_time inicial se calcula con este valor.
+channel_length=30
+
+# Milisegundos entre ticks del canal. Menor = mas rapido.
+boat_speed_ms=150
+
+# Cantidad de barcos a representar por cola en LCD/GUI. Maximo 4 segun enunciado.
+visible_queue_count=4
+
+# Cantidad fisica de LEDs de la tira NeoPixel usados para representar el canal.
+# Puede ser menor que channel_length; en ese caso cada LED representa un rango.
+physical_led_countidf_component_register(
+    SRCS
+        "../../../main.c"
+        "../../../canal.c"
+        "../../../canal_input.c"
+        "../../../canal_common.c"
+        "../../../canal_equity.c"
+        "../../../canal_sign.c"
+        "../../../canal_tico.c"
+        "../../../ship_tasks.c"
+        "../../../ready_queue.c"
+        "../../../lcd_display.c"
+
+        "../../../schedulers/scheduler_policy.c"
+        "../../../schedulers/scheduler_rr.c"
+        "../../../schedulers/scheduler_fcfs.c"
+        "../../../schedulers/scheduler_priority.c"
+        "../../../schedulers/scheduler_sjf.c"
+        "../../../schedulers/scheduler_strn.c"
+        "../../../schedulers/scheduler_edf.c"
+
+    INCLUDE_DIRS
+        "."
+        "../../.."
+        "../../../schedulers"
+
+    REQUIRES
+        esp_driver_i2c
+        esp_driver_gpio
+        led_strip
+)=10
+
+# Solo aplica si channel_type=letrero.
+sign_change_time=3
+
+# Solo aplica si channel_type=equidad.
+equity_w=2
+
+# Quantum usado por RR. STRN usa 1 tick para poder reevaluar constantemente.
+quantum=2
+
+# Tiempo que el canal queda protegido cuando se simula sensor de proximidad con P.
+proximity_block_ms=3000
+
+# 1 habilita teclas 1-6 y P durante la ejecucion.
+enable_keyboard_input=1
+
+# Carga inicial por lado. La cola logica puede tener mas de 4;
+# visible_queue_count solo limita cuantos se muestran.
+initial_left=normal,patrulla,pesquera,normal
+initial_right=pesquera,normal,patrulla,pesquera

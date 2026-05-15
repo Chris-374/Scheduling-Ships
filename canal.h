@@ -3,13 +3,18 @@
 
 #include "ready_queue.h"
 
-/*
- * Largo del canal.
- * Cambie solo este valor si en la defensa el profesor pide otro tamaño.
- * El remaining_time inicial de cada barco se calcula a partir de este valor.
- */
-#define CHANNEL_LENGTH 10
+/* Valor por defecto. El largo real se puede cambiar desde config.txt. */
+#define CHANNEL_LENGTH_DEFAULT 10
 
+/* Configuracion runtime del canal cargada desde config.txt. */
+void canal_set_runtime_config(
+    int channel_length,
+    int tick_ms,
+    int proximity_block_ms
+);
+int canal_get_channel_length(void);
+int canal_get_channel_tick_ms(void);
+int canal_get_proximity_block_ms(void);
 
 /*
  * Habilita una task de teclado para crear barcos durante la ejecucion.

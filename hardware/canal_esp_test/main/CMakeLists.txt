@@ -2,6 +2,11 @@ idf_component_register(
     SRCS
         "../../../main.c"
         "../../../canal.c"
+        "../../../canal_input.c"
+        "../../../canal_common.c"
+        "../../../canal_equity.c"
+        "../../../canal_sign.c"
+        "../../../canal_tico.c"
         "../../../ship_tasks.c"
         "../../../ready_queue.c"
         "../../../lcd_display.c"

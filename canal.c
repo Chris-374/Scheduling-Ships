@@ -12,7 +12,7 @@
 #include "lcd_display.h"
 #include "schedulers/scheduler_policy.h"
 
-#define MAX_SHIPS_IN_CHANNEL 4
+#define MAX_SHIPS_IN_CHANNEL 10
 #define CHANNEL_TICK_MS 150
 
 typedef struct {
@@ -193,20 +193,33 @@ static int movement_period(ShipTask *ship) {
     }
 }
 
-static void wait_one_tick(ShipTask *ship) {
-    if (ship == NULL) {
-        return;
+static int execute_ship_task_once(ShipTask *ship) {
+    if (ship == NULL || isShipFinished(ship)) {
+        return 0;
     }
 
-    while (ship->state == SHIP_WAITING && !isShipFinished(ship)) {
-        vTaskDelay(pdMS_TO_TICKS(10));
+    /*
+     * Espera sincronizada con FreeRTOS.
+     *
+     * Antes el scheduler hacia polling revisando ship->state con while.
+     * Ahora se bloquea esperando la notificacion que envia la task real
+     * del barco cuando termina una unidad de ejecucion.
+     */
+    TaskHandle_t scheduler_handle = xTaskGetCurrentTaskHandle();
+
+    setShipSchedulerHandle(ship, scheduler_handle);
+    wakeShipTask(ship);
+
+    uint32_t notified = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(3000));
+
+    setShipSchedulerHandle(ship, NULL);
+
+    if (notified == 0) {
+        printf("[WARN] Timeout esperando ejecucion de %s.\n", ship->name);
+        return 0;
     }
 
-    while (ship->state == SHIP_RUNNING) {
-        vTaskDelay(pdMS_TO_TICKS(50));
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(20));
+    return 1;
 }
 
 static void init_channel(ChannelState *channel, int direction) {
@@ -503,15 +516,17 @@ static void complete_ship_if_needed(ShipTask *ship) {
     }
 
     /*
-     * Caso normal: al cruzar el ultimo paso de salida, execute_ship_unit()
-     * deja remaining_time en 0 y la task se marca como terminada.
+     * Con el modelo actual, remaining_time se calcula a partir de
+     * CHANNEL_LENGTH. Por eso el barco deberia terminar justo cuando
+     * realiza el ultimo avance de salida.
      *
-     * Este while queda como proteccion por si en algun momento se cambia
-     * manualmente el burst_time y queda mayor que el largo del canal.
+     * No se usa while para forzar la terminacion. Si algo queda
+     * inconsistente, se reporta para depuracion.
      */
-    while (!isShipFinished(ship)) {
-        wakeShipTask(ship);
-        wait_one_tick(ship);
+    if (!isShipFinished(ship)) {
+        printf("[WARN] %s salio del canal pero aun tiene remaining_time=%d.\n",
+               ship->name,
+               ship->remaining_time);
     }
 }
 
@@ -810,10 +825,9 @@ static void execute_ship_unit(ShipInChannel *boat) {
         return;
     }
 
-    wakeShipTask(boat->ship);
-    wait_one_tick(boat->ship);
-
-    boat->ticks_used++;
+    if (execute_ship_task_once(boat->ship)) {
+        boat->ticks_used++;
+    }
 }
 
 /*

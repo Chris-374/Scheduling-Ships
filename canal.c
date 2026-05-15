@@ -41,6 +41,68 @@ static QueueHandle_t ship_request_queue = NULL;
 static int next_dynamic_ship_id = 100;
 static int next_dynamic_deadline = 20;
 
+/*
+ * Evento de sensor de proximidad.
+ *
+ * Importante para defensa:
+ * - La interrupcion/sensor NO ejecuta la logica pesada directamente.
+ * - Solo deja un evento pendiente.
+ * - El canal procesa ese evento en su task normal y ahi si baja agujas,
+ *   evacua barcos y reordena colas.
+ *
+ * En esta version, la tecla P simula el sensor de proximidad.
+ */
+typedef enum {
+    PROXIMITY_EVENT_APPROACH = 1
+} ProximityEvent;
+
+#define PROXIMITY_EVENT_QUEUE_SIZE 4
+#define PROXIMITY_BLOCK_MS 3000
+
+static QueueHandle_t proximity_event_queue = NULL;
+
+static void ensure_proximity_event_queue(void) {
+    if (proximity_event_queue != NULL) {
+        return;
+    }
+
+    proximity_event_queue = xQueueCreate(
+        PROXIMITY_EVENT_QUEUE_SIZE,
+        sizeof(ProximityEvent)
+    );
+
+    if (proximity_event_queue == NULL) {
+        printf("[ERROR] No se pudo crear la cola de eventos del sensor.\n");
+    }
+}
+
+static void signal_proximity_sensor_event(void) {
+    ensure_proximity_event_queue();
+
+    if (proximity_event_queue == NULL) {
+        return;
+    }
+
+    ProximityEvent event = PROXIMITY_EVENT_APPROACH;
+
+    if (xQueueSend(proximity_event_queue, &event, 0) == pdPASS) {
+        printf("[SENSOR] Evento de proximidad recibido.\n");
+    } else {
+        printf("[SENSOR] Cola de eventos llena. Se ignora alerta repetida.\n");
+    }
+}
+
+static int take_proximity_sensor_event(void) {
+    ensure_proximity_event_queue();
+
+    if (proximity_event_queue == NULL) {
+        return 0;
+    }
+
+    ProximityEvent event;
+    return xQueueReceive(proximity_event_queue, &event, 0) == pdPASS;
+}
+
 static int key_to_ship_request(int key, ShipAddRequest *request) {
     if (request == NULL) {
         return 0;
@@ -87,6 +149,12 @@ static void keyboard_input_task(void *pvParameters) {
         int key = getchar();
         ShipAddRequest request;
 
+        if (key == 'p' || key == 'P') {
+            printf("\n[TECLADO] Sensor de proximidad simulado con tecla P.\n");
+            signal_proximity_sensor_event();
+            continue;
+        }
+
         if (key_to_ship_request(key, &request)) {
             if (ship_request_queue != NULL) {
                 if (xQueueSend(ship_request_queue, &request, 0) == pdPASS) {
@@ -104,6 +172,8 @@ static void keyboard_input_task(void *pvParameters) {
 }
 
 void canal_start_keyboard_input(void) {
+    ensure_proximity_event_queue();
+
     if (ship_request_queue == NULL) {
         ship_request_queue = xQueueCreate(
             SHIP_REQUEST_QUEUE_SIZE,
@@ -565,6 +635,42 @@ static void requeue_from_channel(
     remove_from_channel(channel, index);
 }
 
+
+static void emergency_requeue_from_channel(
+    ChannelState *channel,
+    int index,
+    ReadyQueue *left_queue,
+    ReadyQueue *right_queue,
+    SchedulerType scheduler
+) {
+    if (channel == NULL || index < 0 || index >= MAX_SHIPS_IN_CHANNEL) {
+        return;
+    }
+
+    ShipInChannel *boat = &channel->ships[index];
+    ShipTask *ship = boat->ship;
+
+    if (ship == NULL) {
+        remove_from_channel(channel, index);
+        return;
+    }
+
+    save_channel_context(boat);
+
+    ReadyQueue *return_queue = queue_for_side(
+        boat->direction,
+        left_queue,
+        right_queue
+    );
+
+    printf("[INTERRUPCION] %s sale temporalmente del canal y vuelve a cola en posicion %d.\n",
+           ship->name,
+           boat->position);
+
+    scheduler_enqueue_ordered(return_queue, ship, scheduler);
+    remove_from_channel(channel, index);
+}
+
 static void finish_from_channel(ChannelState *channel, int index) {
     if (channel == NULL || index < 0 || index >= MAX_SHIPS_IN_CHANNEL) {
         return;
@@ -645,6 +751,83 @@ static ShipTask *select_next_equity_ship(
     return NULL;
 }
 
+/*
+ * Cuando un barco fue removido temporalmente del canal, conserva una
+ * posicion guardada. En ese caso, el scheduler puede ordenar la cola,
+ * pero no puede romper el orden fisico del canal.
+ *
+ * Ejemplo izquierda -> derecha:
+ *   L1 en posicion 5 va adelante de L2 en posicion 4.
+ *   Aunque RR/STRN/Priority pongan L2 primero en la cola, L2 no debe
+ *   retomar antes que L1 si eso le permite rebasarlo.
+ *
+ * Por eso, antes de admitir un barco con posicion guardada, se busca si
+ * existe otro barco del mismo sentido mas adelantado en la cola. Si existe,
+ * ese barco fisicamente lider debe retomar primero.
+ */
+static int position_is_ahead(int direction, int candidate_position, int other_position) {
+    if (direction == LEFT_SIDE) {
+        return other_position > candidate_position;
+    }
+
+    return other_position < candidate_position;
+}
+
+static ShipTask *select_physical_leader_if_needed(
+    ReadyQueue *queue,
+    ShipTask *candidate
+) {
+    if (queue == NULL || candidate == NULL) {
+        return candidate;
+    }
+
+    /*
+     * Si hay barcos con posicion guardada, les damos prioridad de
+     * recuperacion sobre barcos nuevos para reconstruir el canal sin
+     * adelantamientos despues de una interrupcion o preempcion.
+     */
+    ShipTask *leader = NULL;
+    ReadyNode *current = queue->front;
+
+    while (current != NULL) {
+        ShipTask *ship = current->ship;
+
+        if (ship != NULL && ship->channel_has_position) {
+            if (leader == NULL) {
+                leader = ship;
+            } else if (ship->channel_direction == leader->channel_direction &&
+                       position_is_ahead(
+                           leader->channel_direction,
+                           leader->channel_position,
+                           ship->channel_position
+                       )) {
+                leader = ship;
+            }
+        }
+
+        current = current->next;
+    }
+
+    if (leader == NULL) {
+        return candidate;
+    }
+
+    if (!candidate->channel_has_position) {
+        return leader;
+    }
+
+    if (leader->channel_direction == candidate->channel_direction &&
+        position_is_ahead(
+            candidate->channel_direction,
+            candidate->channel_position,
+            leader->channel_position
+        )) {
+        return leader;
+    }
+
+    return candidate;
+}
+
 static int admit_one_ship_equity(
     ChannelState *channel,
     ReadyQueue *left_queue,
@@ -673,6 +856,7 @@ static int admit_one_ship_equity(
     }
 
     ShipTask *ship = select_next_equity_ship(queue, can_start_new_ship);
+    ship = select_physical_leader_if_needed(queue, ship);
 
     if (ship == NULL) {
         return 0;
@@ -756,6 +940,7 @@ static int admit_one_ship(
     }
 
     ShipTask *ship = scheduler_select_next_ship(queue, scheduler);
+    ship = select_physical_leader_if_needed(queue, ship);
 
     if (ship == NULL) {
         return 0;
@@ -971,6 +1156,61 @@ static void delay_channel_tick(void) {
     vTaskDelay(pdMS_TO_TICKS(CHANNEL_TICK_MS));
 }
 
+/*
+ * Procesa el evento del sensor de proximidad fuera de la ISR.
+ *
+ * Esto modela la interrupcion pedida por el enunciado:
+ * - Se bajan las agujas.
+ * - Se detiene la admision temporalmente.
+ * - Los barcos que estaban dentro del canal se sacan y vuelven a cola.
+ * - Las colas se reordenan con el scheduler actual.
+ * - Se espera un tiempo deterministico para simular el buque externo.
+ */
+static int handle_proximity_interrupt(
+    ChannelState *channel,
+    ReadyQueue *left_queue,
+    ReadyQueue *right_queue,
+    SchedulerType scheduler
+) {
+    if (!take_proximity_sensor_event()) {
+        return 0;
+    }
+
+    printf("\n======================================================\n");
+    printf("[INTERRUPCION] Sensor de proximidad detecto un buque.\n");
+    printf("[INTERRUPCION] Bajando agujas y evacuando el canal.\n");
+    printf("======================================================\n");
+
+    lcd_display_set_gates(1, 1);
+
+    for (int i = 0; i < MAX_SHIPS_IN_CHANNEL; i++) {
+        if (channel->ships[i].active) {
+            emergency_requeue_from_channel(
+                channel,
+                i,
+                left_queue,
+                right_queue,
+                scheduler
+            );
+        }
+    }
+
+    reorder_queue_by_scheduler(left_queue, scheduler);
+    reorder_queue_by_scheduler(right_queue, scheduler);
+
+    print_channel(channel);
+    update_hardware_channel(channel);
+    lcd_display_update(left_queue, right_queue, NULL);
+
+    printf("[INTERRUPCION] Buque externo pasando. Canal protegido.\n");
+    vTaskDelay(pdMS_TO_TICKS(PROXIMITY_BLOCK_MS));
+
+    printf("[INTERRUPCION] Buque externo paso. Levantando agujas y reanudando.\n");
+    lcd_display_set_gates(0, 0);
+
+    return 1;
+}
+
 /* =========================================
  * POLÍTICA 1: EQUIDAD
  * ========================================= */
@@ -1015,6 +1255,8 @@ static void run_equity(
     while (!isQueueEmpty(left_queue) ||
            !isQueueEmpty(right_queue) ||
            !channel_is_empty(&channel)) {
+        handle_proximity_interrupt(&channel, left_queue, right_queue, scheduler);
+
         process_pending_ship_requests(left_queue, right_queue, scheduler);
 
         ReadyQueue *active_queue = queue_for_side(
@@ -1146,6 +1388,8 @@ static void run_sign(
     while (!isQueueEmpty(left_queue) ||
            !isQueueEmpty(right_queue) ||
            !channel_is_empty(&channel)) {
+        handle_proximity_interrupt(&channel, left_queue, right_queue, scheduler);
+
         process_pending_ship_requests(left_queue, right_queue, scheduler);
 
         ReadyQueue *active_queue = queue_for_side(
@@ -1220,6 +1464,8 @@ static void run_tico(
     while (!isQueueEmpty(left_queue) ||
            !isQueueEmpty(right_queue) ||
            !channel_is_empty(&channel)) {
+        handle_proximity_interrupt(&channel, left_queue, right_queue, scheduler);
+
         process_pending_ship_requests(left_queue, right_queue, scheduler);
 
         ReadyQueue *active_queue = queue_for_side(

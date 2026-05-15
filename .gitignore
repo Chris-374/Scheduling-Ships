@@ -1,0 +1,20 @@
+# Compilados de C
+*.o
+*.elf
+*.bin
+*.map
+
+# Ejecutable local del proyecto
+scheduling_ships
+
+# Carpetas de build
+build/
+**/build/
+
+# ESP-IDF
+sdkconfig.old
+managed_components/
+
+# Logs y temporales
+*.log
+.DS_Store

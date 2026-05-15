@@ -10,7 +10,7 @@ scheduler=rr
 channel_type=equidad
 
 # Largo logico del canal. El remaining_time inicial se calcula con este valor.
-channel_length=30
+channel_length=10
 
 # Milisegundos entre ticks del canal. Menor = mas rapido.
 boat_speed_ms=150

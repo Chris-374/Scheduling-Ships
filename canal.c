@@ -12,7 +12,7 @@
 #include "lcd_display.h"
 #include "schedulers/scheduler_policy.h"
 
-#define MAX_SHIPS_IN_CHANNEL 4
+#define MAX_SHIPS_IN_CHANNEL 10
 #define CHANNEL_TICK_MS 150
 
 typedef struct {
@@ -40,6 +40,68 @@ typedef struct {
 static QueueHandle_t ship_request_queue = NULL;
 static int next_dynamic_ship_id = 100;
 static int next_dynamic_deadline = 20;
+
+/*
+ * Evento de sensor de proximidad.
+ *
+ * Importante para defensa:
+ * - La interrupcion/sensor NO ejecuta la logica pesada directamente.
+ * - Solo deja un evento pendiente.
+ * - El canal procesa ese evento en su task normal y ahi si baja agujas,
+ *   evacua barcos y reordena colas.
+ *
+ * En esta version, la tecla P simula el sensor de proximidad.
+ */
+typedef enum {
+    PROXIMITY_EVENT_APPROACH = 1
+} ProximityEvent;
+
+#define PROXIMITY_EVENT_QUEUE_SIZE 4
+#define PROXIMITY_BLOCK_MS 3000
+
+static QueueHandle_t proximity_event_queue = NULL;
+
+static void ensure_proximity_event_queue(void) {
+    if (proximity_event_queue != NULL) {
+        return;
+    }
+
+    proximity_event_queue = xQueueCreate(
+        PROXIMITY_EVENT_QUEUE_SIZE,
+        sizeof(ProximityEvent)
+    );
+
+    if (proximity_event_queue == NULL) {
+        printf("[ERROR] No se pudo crear la cola de eventos del sensor.\n");
+    }
+}
+
+static void signal_proximity_sensor_event(void) {
+    ensure_proximity_event_queue();
+
+    if (proximity_event_queue == NULL) {
+        return;
+    }
+
+    ProximityEvent event = PROXIMITY_EVENT_APPROACH;
+
+    if (xQueueSend(proximity_event_queue, &event, 0) == pdPASS) {
+        printf("[SENSOR] Evento de proximidad recibido.\n");
+    } else {
+        printf("[SENSOR] Cola de eventos llena. Se ignora alerta repetida.\n");
+    }
+}
+
+static int take_proximity_sensor_event(void) {
+    ensure_proximity_event_queue();
+
+    if (proximity_event_queue == NULL) {
+        return 0;
+    }
+
+    ProximityEvent event;
+    return xQueueReceive(proximity_event_queue, &event, 0) == pdPASS;
+}
 
 static int key_to_ship_request(int key, ShipAddRequest *request) {
     if (request == NULL) {
@@ -87,6 +149,12 @@ static void keyboard_input_task(void *pvParameters) {
         int key = getchar();
         ShipAddRequest request;
 
+        if (key == 'p' || key == 'P') {
+            printf("\n[TECLADO] Sensor de proximidad simulado con tecla P.\n");
+            signal_proximity_sensor_event();
+            continue;
+        }
+
         if (key_to_ship_request(key, &request)) {
             if (ship_request_queue != NULL) {
                 if (xQueueSend(ship_request_queue, &request, 0) == pdPASS) {
@@ -104,6 +172,8 @@ static void keyboard_input_task(void *pvParameters) {
 }
 
 void canal_start_keyboard_input(void) {
+    ensure_proximity_event_queue();
+
     if (ship_request_queue == NULL) {
         ship_request_queue = xQueueCreate(
             SHIP_REQUEST_QUEUE_SIZE,
@@ -193,20 +263,33 @@ static int movement_period(ShipTask *ship) {
     }
 }
 
-static void wait_one_tick(ShipTask *ship) {
-    if (ship == NULL) {
-        return;
+static int execute_ship_task_once(ShipTask *ship) {
+    if (ship == NULL || isShipFinished(ship)) {
+        return 0;
     }
 
-    while (ship->state == SHIP_WAITING && !isShipFinished(ship)) {
-        vTaskDelay(pdMS_TO_TICKS(10));
+    /*
+     * Espera sincronizada con FreeRTOS.
+     *
+     * Antes el scheduler hacia polling revisando ship->state con while.
+     * Ahora se bloquea esperando la notificacion que envia la task real
+     * del barco cuando termina una unidad de ejecucion.
+     */
+    TaskHandle_t scheduler_handle = xTaskGetCurrentTaskHandle();
+
+    setShipSchedulerHandle(ship, scheduler_handle);
+    wakeShipTask(ship);
+
+    uint32_t notified = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(3000));
+
+    setShipSchedulerHandle(ship, NULL);
+
+    if (notified == 0) {
+        printf("[WARN] Timeout esperando ejecucion de %s.\n", ship->name);
+        return 0;
     }
 
-    while (ship->state == SHIP_RUNNING) {
-        vTaskDelay(pdMS_TO_TICKS(50));
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(20));
+    return 1;
 }
 
 static void init_channel(ChannelState *channel, int direction) {
@@ -343,6 +426,26 @@ static void print_channel(ChannelState *channel) {
     printf("\n");
 }
 
+static void update_hardware_channel(ChannelState *channel) {
+    int positions[MAX_SHIPS_IN_CHANNEL];
+    ShipType types[MAX_SHIPS_IN_CHANNEL];
+    int count = 0;
+
+    if (channel == NULL) {
+        lcd_display_update_channel(NULL, NULL, 0, CHANNEL_LENGTH);
+        return;
+    }
+
+    for (int i = 0; i < MAX_SHIPS_IN_CHANNEL; i++) {
+        if (channel->ships[i].active && channel->ships[i].ship != NULL) {
+            positions[count] = channel->ships[i].position;
+            types[count] = channel->ships[i].ship->type;
+            count++;
+        }
+    }
+
+    lcd_display_update_channel(positions, types, count, CHANNEL_LENGTH);
+}
 
 static void reorder_queue_by_scheduler(ReadyQueue *queue, SchedulerType scheduler) {
     if (queue == NULL) {
@@ -483,15 +586,17 @@ static void complete_ship_if_needed(ShipTask *ship) {
     }
 
     /*
-     * Caso normal: al cruzar el ultimo paso de salida, execute_ship_unit()
-     * deja remaining_time en 0 y la task se marca como terminada.
+     * Con el modelo actual, remaining_time se calcula a partir de
+     * CHANNEL_LENGTH. Por eso el barco deberia terminar justo cuando
+     * realiza el ultimo avance de salida.
      *
-     * Este while queda como proteccion por si en algun momento se cambia
-     * manualmente el burst_time y queda mayor que el largo del canal.
+     * No se usa while para forzar la terminacion. Si algo queda
+     * inconsistente, se reporta para depuracion.
      */
-    while (!isShipFinished(ship)) {
-        wakeShipTask(ship);
-        wait_one_tick(ship);
+    if (!isShipFinished(ship)) {
+        printf("[WARN] %s salio del canal pero aun tiene remaining_time=%d.\n",
+               ship->name,
+               ship->remaining_time);
     }
 }
 
@@ -530,6 +635,42 @@ static void requeue_from_channel(
     remove_from_channel(channel, index);
 }
 
+
+static void emergency_requeue_from_channel(
+    ChannelState *channel,
+    int index,
+    ReadyQueue *left_queue,
+    ReadyQueue *right_queue,
+    SchedulerType scheduler
+) {
+    if (channel == NULL || index < 0 || index >= MAX_SHIPS_IN_CHANNEL) {
+        return;
+    }
+
+    ShipInChannel *boat = &channel->ships[index];
+    ShipTask *ship = boat->ship;
+
+    if (ship == NULL) {
+        remove_from_channel(channel, index);
+        return;
+    }
+
+    save_channel_context(boat);
+
+    ReadyQueue *return_queue = queue_for_side(
+        boat->direction,
+        left_queue,
+        right_queue
+    );
+
+    printf("[INTERRUPCION] %s sale temporalmente del canal y vuelve a cola en posicion %d.\n",
+           ship->name,
+           boat->position);
+
+    scheduler_enqueue_ordered(return_queue, ship, scheduler);
+    remove_from_channel(channel, index);
+}
+
 static void finish_from_channel(ChannelState *channel, int index) {
     if (channel == NULL || index < 0 || index >= MAX_SHIPS_IN_CHANNEL) {
         return;
@@ -543,6 +684,8 @@ static void finish_from_channel(ChannelState *channel, int index) {
 
         printf("[CANAL] %s salió del canal por el extremo contrario.\n",
                ship->name);
+
+        lcd_display_show_arrival(ship);
     }
 
     remove_from_channel(channel, index);
@@ -562,6 +705,217 @@ static int get_target_direction_for_ship(ShipTask *ship, int side) {
     }
 
     return side;
+}
+
+
+static int queue_has_resumable_ship(ReadyQueue *queue) {
+    if (queue == NULL) {
+        return 0;
+    }
+
+    ReadyNode *current = queue->front;
+
+    while (current != NULL) {
+        if (current->ship != NULL && current->ship->channel_has_position) {
+            return 1;
+        }
+
+        current = current->next;
+    }
+
+    return 0;
+}
+
+static ShipTask *select_next_equity_ship(
+    ReadyQueue *queue,
+    int can_start_new_ship
+) {
+    if (queue == NULL) {
+        return NULL;
+    }
+
+    ReadyNode *current = queue->front;
+
+    while (current != NULL) {
+        ShipTask *ship = current->ship;
+
+        if (ship != NULL) {
+            if (ship->channel_has_position || can_start_new_ship) {
+                return ship;
+            }
+        }
+
+        current = current->next;
+    }
+
+    return NULL;
+}
+
+/*
+ * Cuando un barco fue removido temporalmente del canal, conserva una
+ * posicion guardada. En ese caso, el scheduler puede ordenar la cola,
+ * pero no puede romper el orden fisico del canal.
+ *
+ * Ejemplo izquierda -> derecha:
+ *   L1 en posicion 5 va adelante de L2 en posicion 4.
+ *   Aunque RR/STRN/Priority pongan L2 primero en la cola, L2 no debe
+ *   retomar antes que L1 si eso le permite rebasarlo.
+ *
+ * Por eso, antes de admitir un barco con posicion guardada, se busca si
+ * existe otro barco del mismo sentido mas adelantado en la cola. Si existe,
+ * ese barco fisicamente lider debe retomar primero.
+ */
+static int position_is_ahead(int direction, int candidate_position, int other_position) {
+    if (direction == LEFT_SIDE) {
+        return other_position > candidate_position;
+    }
+
+    return other_position < candidate_position;
+}
+
+static ShipTask *select_physical_leader_if_needed(
+    ReadyQueue *queue,
+    ShipTask *candidate
+) {
+    if (queue == NULL || candidate == NULL) {
+        return candidate;
+    }
+
+    /*
+     * Si hay barcos con posicion guardada, les damos prioridad de
+     * recuperacion sobre barcos nuevos para reconstruir el canal sin
+     * adelantamientos despues de una interrupcion o preempcion.
+     */
+    ShipTask *leader = NULL;
+    ReadyNode *current = queue->front;
+
+    while (current != NULL) {
+        ShipTask *ship = current->ship;
+
+        if (ship != NULL && ship->channel_has_position) {
+            if (leader == NULL) {
+                leader = ship;
+            } else if (ship->channel_direction == leader->channel_direction &&
+                       position_is_ahead(
+                           leader->channel_direction,
+                           leader->channel_position,
+                           ship->channel_position
+                       )) {
+                leader = ship;
+            }
+        }
+
+        current = current->next;
+    }
+
+    if (leader == NULL) {
+        return candidate;
+    }
+
+    if (!candidate->channel_has_position) {
+        return leader;
+    }
+
+    if (leader->channel_direction == candidate->channel_direction &&
+        position_is_ahead(
+            candidate->channel_direction,
+            candidate->channel_position,
+            leader->channel_position
+        )) {
+        return leader;
+    }
+
+    return candidate;
+}
+
+static int admit_one_ship_equity(
+    ChannelState *channel,
+    ReadyQueue *left_queue,
+    ReadyQueue *right_queue,
+    int side,
+    SchedulerType scheduler,
+    int can_start_new_ship,
+    int *started_new_ship
+) {
+    if (started_new_ship != NULL) {
+        *started_new_ship = 0;
+    }
+
+    if (channel == NULL) {
+        return 0;
+    }
+
+    if (channel_count(channel) >= MAX_SHIPS_IN_CHANNEL) {
+        return 0;
+    }
+
+    ReadyQueue *queue = queue_for_side(side, left_queue, right_queue);
+
+    if (isQueueEmpty(queue)) {
+        return 0;
+    }
+
+    ShipTask *ship = select_next_equity_ship(queue, can_start_new_ship);
+    ship = select_physical_leader_if_needed(queue, ship);
+
+    if (ship == NULL) {
+        return 0;
+    }
+
+    int was_already_in_batch = ship->channel_has_position;
+    int target_position = get_target_position_for_ship(ship, side);
+    int target_direction = get_target_direction_for_ship(ship, side);
+
+    if (!channel_is_empty(channel) && channel->direction != target_direction) {
+        return 0;
+    }
+
+    if (position_occupied(channel, target_position, -1)) {
+        return 0;
+    }
+
+    int slot = find_free_slot(channel);
+
+    if (slot < 0) {
+        return 0;
+    }
+
+    if (!scheduler_remove_specific_ship(queue, ship)) {
+        return 0;
+    }
+
+    channel->direction = target_direction;
+
+    channel->ships[slot].ship = ship;
+    channel->ships[slot].position = target_position;
+    channel->ships[slot].direction = target_direction;
+    channel->ships[slot].speed_counter = ship->channel_has_position
+        ? ship->channel_speed_counter
+        : 0;
+    channel->ships[slot].ticks_used = 0;
+    channel->ships[slot].active = 1;
+
+    if (ship->channel_has_position) {
+        printf("\n[CANAL] %s retoma el canal desde la posicion %d en sentido %s.\n",
+               ship->name,
+               target_position,
+               direction_name(target_direction));
+    } else {
+        printf("\n[CANAL] %s entra al canal desde la %s en posicion %d.\n",
+               ship->name,
+               side_name(side),
+               target_position);
+    }
+
+    if (!was_already_in_batch && started_new_ship != NULL) {
+        *started_new_ship = 1;
+    }
+
+    lcd_display_update(left_queue, right_queue, ship);
+    print_channel(channel);
+    update_hardware_channel(channel);
+
+    return 1;
 }
 
 static int admit_one_ship(
@@ -586,6 +940,7 @@ static int admit_one_ship(
     }
 
     ShipTask *ship = scheduler_select_next_ship(queue, scheduler);
+    ship = select_physical_leader_if_needed(queue, ship);
 
     if (ship == NULL) {
         return 0;
@@ -641,6 +996,7 @@ static int admit_one_ship(
 
     lcd_display_update(left_queue, right_queue, ship);
     print_channel(channel);
+    update_hardware_channel(channel);
 
     return 1;
 }
@@ -654,10 +1010,9 @@ static void execute_ship_unit(ShipInChannel *boat) {
         return;
     }
 
-    wakeShipTask(boat->ship);
-    wait_one_tick(boat->ship);
-
-    boat->ticks_used++;
+    if (execute_ship_task_once(boat->ship)) {
+        boat->ticks_used++;
+    }
 }
 
 /*
@@ -670,7 +1025,7 @@ static void execute_ship_unit(ShipInChannel *boat) {
  * - Si está ocupada, ese barco no avanza en este tick.
  * - Otros barcos igual se revisan.
  */
-static void move_channel_tick(
+static int move_channel_tick(
     ChannelState *channel,
     ReadyQueue *left_queue,
     ReadyQueue *right_queue,
@@ -678,8 +1033,10 @@ static void move_channel_tick(
     SchedulerType scheduler
 ) {
     if (channel == NULL || channel_is_empty(channel)) {
-        return;
+        return 0;
     }
+
+    int completed_count = 0;
 
     int processed[MAX_SHIPS_IN_CHANNEL];
 
@@ -747,6 +1104,7 @@ static void move_channel_tick(
 
             lcd_display_update(left_queue, right_queue, ship);
             finish_from_channel(channel, selected);
+            completed_count++;
             continue;
         }
 
@@ -789,10 +1147,68 @@ static void move_channel_tick(
     }
 
     print_channel(channel);
+    update_hardware_channel(channel);
+
+    return completed_count;
 }
 
 static void delay_channel_tick(void) {
     vTaskDelay(pdMS_TO_TICKS(CHANNEL_TICK_MS));
+}
+
+/*
+ * Procesa el evento del sensor de proximidad fuera de la ISR.
+ *
+ * Esto modela la interrupcion pedida por el enunciado:
+ * - Se bajan las agujas.
+ * - Se detiene la admision temporalmente.
+ * - Los barcos que estaban dentro del canal se sacan y vuelven a cola.
+ * - Las colas se reordenan con el scheduler actual.
+ * - Se espera un tiempo deterministico para simular el buque externo.
+ */
+static int handle_proximity_interrupt(
+    ChannelState *channel,
+    ReadyQueue *left_queue,
+    ReadyQueue *right_queue,
+    SchedulerType scheduler
+) {
+    if (!take_proximity_sensor_event()) {
+        return 0;
+    }
+
+    printf("\n======================================================\n");
+    printf("[INTERRUPCION] Sensor de proximidad detecto un buque.\n");
+    printf("[INTERRUPCION] Bajando agujas y evacuando el canal.\n");
+    printf("======================================================\n");
+
+    lcd_display_set_gates(1, 1);
+
+    for (int i = 0; i < MAX_SHIPS_IN_CHANNEL; i++) {
+        if (channel->ships[i].active) {
+            emergency_requeue_from_channel(
+                channel,
+                i,
+                left_queue,
+                right_queue,
+                scheduler
+            );
+        }
+    }
+
+    reorder_queue_by_scheduler(left_queue, scheduler);
+    reorder_queue_by_scheduler(right_queue, scheduler);
+
+    print_channel(channel);
+    update_hardware_channel(channel);
+    lcd_display_update(left_queue, right_queue, NULL);
+
+    printf("[INTERRUPCION] Buque externo pasando. Canal protegido.\n");
+    vTaskDelay(pdMS_TO_TICKS(PROXIMITY_BLOCK_MS));
+
+    printf("[INTERRUPCION] Buque externo paso. Levantando agujas y reanudando.\n");
+    lcd_display_set_gates(0, 0);
+
+    return 1;
 }
 
 /* =========================================
@@ -806,16 +1222,41 @@ static void run_equity(
     SchedulerType scheduler
 ) {
     int current_side = LEFT_SIDE;
-    int admitted_this_turn = 0;
+
+    /*
+     * completed_this_turn:
+     *   barcos que ya cruzaron completamente en el turno actual.
+     *
+     * started_this_turn:
+     *   barcos DISTINTOS autorizados a participar en este turno.
+     *
+     * Importante:
+     *   W no representa quantum ni cantidad de admisiones repetidas.
+     *   W representa barcos completos por sentido.
+     *
+     *   Con RR, un barco puede agotar quantum y volver a cola. Si ese barco
+     *   ya habia sido autorizado para este turno, puede retomar aunque
+     *   started_this_turn ya haya llegado a W.
+     *
+     *   Lo que NO se permite es iniciar barcos nuevos del mismo lado cuando
+     *   ya se autorizaron W barcos para ese lote de Equidad.
+     */
+    int completed_this_turn = 0;
+    int started_this_turn = 0;
 
     ChannelState channel;
     init_channel(&channel, current_side);
 
     printf("\n[CANAL] Iniciando control de flujo: EQUIDAD (W = %d)\n", W);
+    lcd_display_set_direction(current_side);
+    lcd_display_set_gates(0, 0);
+    update_hardware_channel(&channel);
 
     while (!isQueueEmpty(left_queue) ||
            !isQueueEmpty(right_queue) ||
            !channel_is_empty(&channel)) {
+        handle_proximity_interrupt(&channel, left_queue, right_queue, scheduler);
+
         process_pending_ship_requests(left_queue, right_queue, scheduler);
 
         ReadyQueue *active_queue = queue_for_side(
@@ -831,36 +1272,92 @@ static void run_equity(
         );
 
         if (channel_is_empty(&channel)) {
-            if (admitted_this_turn >= W ||
-                (isQueueEmpty(active_queue) && !isQueueEmpty(other_queue))) {
+            int active_has_resumable = queue_has_resumable_ship(active_queue);
+            int should_switch_by_w =
+                completed_this_turn >= W && !active_has_resumable;
+            int should_switch_by_empty_side =
+                isQueueEmpty(active_queue) && !isQueueEmpty(other_queue);
+
+            if (should_switch_by_w) {
+                if (!isQueueEmpty(other_queue)) {
+                    current_side = opposite_side(current_side);
+                    channel.direction = current_side;
+                    completed_this_turn = 0;
+                    started_this_turn = 0;
+
+                    lcd_display_set_direction(current_side);
+
+                    printf("\n[CANAL] Equidad: ya pasaron %d barcos completos. ", W);
+                    printf("Cambiando a la cola %s.\n", side_name(current_side));
+                } else {
+                    /*
+                     * El otro lado no tiene barcos. Se reinicia el lote del
+                     * mismo lado para garantizar flujo, tal como pide Equidad.
+                     */
+                    completed_this_turn = 0;
+                    started_this_turn = 0;
+
+                    printf("\n[CANAL] Equidad: ya pasaron %d barcos completos, ", W);
+                    printf("pero el lado contrario esta vacio. Continua %s.\n",
+                           side_name(current_side));
+                }
+            } else if (should_switch_by_empty_side) {
                 current_side = opposite_side(current_side);
                 channel.direction = current_side;
-                admitted_this_turn = 0;
+                completed_this_turn = 0;
+                started_this_turn = 0;
 
-                printf("\n[CANAL] Cambio de sentido. Atendiendo a la cola %s.\n",
-                       side_name(current_side));
+                lcd_display_set_direction(current_side);
+
+                printf("\n[CANAL] Equidad: no hay barcos en el lado activo. ");
+                printf("Cambiando a la cola %s.\n", side_name(current_side));
             }
         }
 
-        if (admitted_this_turn < W && !isQueueEmpty(active_queue)) {
-            if (admit_one_ship(
+        active_queue = queue_for_side(
+            current_side,
+            left_queue,
+            right_queue
+        );
+
+        int can_start_new_ship = started_this_turn < W;
+        int started_new_ship = 0;
+
+        if (!isQueueEmpty(active_queue)) {
+            if (admit_one_ship_equity(
                     &channel,
                     left_queue,
                     right_queue,
                     current_side,
-                    scheduler
+                    scheduler,
+                    can_start_new_ship,
+                    &started_new_ship
                 )) {
-                admitted_this_turn++;
+                if (started_new_ship) {
+                    started_this_turn++;
+                    printf("[CANAL] Equidad: barco autorizado del lado %s: %d/%d.\n",
+                           side_name(current_side),
+                           started_this_turn,
+                           W);
+                }
             }
         }
 
-        move_channel_tick(
+        int completed_now = move_channel_tick(
             &channel,
             left_queue,
             right_queue,
             max_ticks,
             scheduler
         );
+
+        if (completed_now > 0) {
+            completed_this_turn += completed_now;
+            printf("[CANAL] Equidad: barcos completos del lado %s en este turno: %d/%d.\n",
+                   side_name(current_side),
+                   completed_this_turn,
+                   W);
+        }
 
         delay_channel_tick();
     }
@@ -884,10 +1381,15 @@ static void run_sign(
 
     printf("\n[CANAL] Iniciando control de flujo: LETRERO (Tiempo = %d ticks)\n",
            sign_duration);
+    lcd_display_set_direction(current_side);
+    lcd_display_set_gates(0, 0);
+    update_hardware_channel(&channel);
 
     while (!isQueueEmpty(left_queue) ||
            !isQueueEmpty(right_queue) ||
            !channel_is_empty(&channel)) {
+        handle_proximity_interrupt(&channel, left_queue, right_queue, scheduler);
+
         process_pending_ship_requests(left_queue, right_queue, scheduler);
 
         ReadyQueue *active_queue = queue_for_side(
@@ -908,6 +1410,8 @@ static void run_sign(
                 current_side = opposite_side(current_side);
                 channel.direction = current_side;
                 elapsed_time = 0;
+
+                lcd_display_set_direction(current_side);
 
                 printf("\n[CANAL] El letrero cambió. Nuevo sentido: %s.\n",
                        side_name(current_side));
@@ -953,10 +1457,15 @@ static void run_tico(
 
     printf("\n[CANAL] Iniciando control de flujo: TICO\n");
     printf("[CANAL] No hay control estricto, pero se evita choque por posiciones.\n");
+    lcd_display_set_direction(current_side);
+    lcd_display_set_gates(0, 0);
+    update_hardware_channel(&channel);
 
     while (!isQueueEmpty(left_queue) ||
            !isQueueEmpty(right_queue) ||
            !channel_is_empty(&channel)) {
+        handle_proximity_interrupt(&channel, left_queue, right_queue, scheduler);
+
         process_pending_ship_requests(left_queue, right_queue, scheduler);
 
         ReadyQueue *active_queue = queue_for_side(
@@ -976,6 +1485,8 @@ static void run_tico(
             !isQueueEmpty(other_queue)) {
             current_side = opposite_side(current_side);
             channel.direction = current_side;
+
+            lcd_display_set_direction(current_side);
 
             printf("\n[CANAL] TICO: cediendo paso al lado %s.\n",
                    side_name(current_side));
@@ -1055,5 +1566,7 @@ void run_channel_flow(
     }
 
     lcd_display_update(left_queue, right_queue, NULL);
+    lcd_display_update_channel(NULL, NULL, 0, CHANNEL_LENGTH);
+    lcd_display_set_gates(0, 0);
     printf("\n[CANAL] Todas las colas estan vacias. El puente esta inactivo.\n");
 }

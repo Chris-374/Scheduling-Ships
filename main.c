@@ -5,12 +5,6 @@
 #include "canal.h"
 #include "ship_tasks.h"
 #include "ready_queue.h"
-#include "scheduler_rr_freertos.h"
-#include "scheduler_priority_freertos.h"
-#include "scheduler_sjf_freertos.h"
-#include "scheduler_strn_freertos.h"
-#include "scheduler_fcfs_freertos.h"
-#include "scheduler_edf_freertos.h"
 #include "lcd_display.h"
 
 /*
@@ -23,6 +17,10 @@ static ShipTask ship1;
 static ShipTask ship2;
 static ShipTask ship3;
 static ShipTask ship4;
+static ShipTask ship5;
+static ShipTask ship6;
+static ShipTask ship7;
+static ShipTask ship8;
 
 /*
  * Colas de listos.
@@ -56,9 +54,11 @@ static ReadyQueue right_queue;
  * SCHEDULER_FCFS
  * SCHEDULER_EDF
  */
-#define SELECTED_SCHEDULER SCHEDULER_SJF
+
+#define SELECTED_SCHEDULER SCHEDULER_FCFS
 #define SELECTED_CHANNEL CHANNEL_EQUITY
 #define CHANNEL_PARAM 2
+#
 
 /*
  * Esta es la task del calendarizador.
@@ -228,6 +228,50 @@ void app_main(void) {
         getDefaultDeadlineForType(NORMAL, CHANNEL_LENGTH)
     );
 
+        createShipTask(
+        &ship5,
+        5,
+        "L3_Pesquera",
+        FISHING,
+        LEFT_SIDE,
+        getDefaultBurstForType(FISHING, CHANNEL_LENGTH),
+        getDefaultPriorityForType(FISHING),
+        getDefaultDeadlineForType(FISHING, CHANNEL_LENGTH)
+    );
+
+    createShipTask(
+        &ship6,
+        6,
+        "L4_Normal",
+        NORMAL,
+        LEFT_SIDE,
+        getDefaultBurstForType(NORMAL, CHANNEL_LENGTH),
+        getDefaultPriorityForType(NORMAL),
+        getDefaultDeadlineForType(NORMAL, CHANNEL_LENGTH)
+    );
+
+    createShipTask(
+        &ship7,
+        7,
+        "R3_Patrulla",
+        PATROL,
+        RIGHT_SIDE,
+        getDefaultBurstForType(PATROL, CHANNEL_LENGTH),
+        getDefaultPriorityForType(PATROL),
+        getDefaultDeadlineForType(PATROL, CHANNEL_LENGTH)
+    );
+
+    createShipTask(
+        &ship8,
+        8,
+        "R4_Pesquera",
+        FISHING,
+        RIGHT_SIDE,
+        getDefaultBurstForType(FISHING, CHANNEL_LENGTH),
+        getDefaultPriorityForType(FISHING),
+        getDefaultDeadlineForType(FISHING, CHANNEL_LENGTH)
+    );
+
     /*
      * Insertamos los barcos en las colas.
      *
@@ -241,15 +285,20 @@ void app_main(void) {
      * Cola derecha:
      * - R1_Pesquera, deadline 8
      * - R2_Normal, deadline 15
+     * - R3_Patrulla, deadline 10
+     * - R4_Pesquera, deadline 12
      *
      * Para EDF este valor importa directamente.
      */
     enqueue(&left_queue, &ship1);
     enqueue(&left_queue, &ship2);
+    enqueue(&left_queue, &ship5);
+    enqueue(&left_queue, &ship6);
 
     enqueue(&right_queue, &ship3);
     enqueue(&right_queue, &ship4);
-
+    enqueue(&right_queue, &ship7);
+    enqueue(&right_queue, &ship8);
 
     lcd_display_update(&left_queue, &right_queue, NULL);
     

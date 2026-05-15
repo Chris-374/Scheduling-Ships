@@ -25,7 +25,8 @@
 #define LCD_RIGHT_ADDR 0x25
 
 #define NEOPIXEL_GPIO       8
-#define PHYSICAL_LED_COUNT  10
+#define MAX_PHYSICAL_LED_COUNT 32
+#define DEFAULT_PHYSICAL_LED_COUNT 10
 
 #define DIRECTION_LED_GPIO  15
 #define LEFT_GATE_LED_GPIO  10
@@ -54,6 +55,9 @@ static int lcd_ready = 0;
 static led_strip_handle_t strip_handle = NULL;
 static int strip_ready = 0;
 static int gpio_ready = 0;
+
+static int g_physical_led_count = DEFAULT_PHYSICAL_LED_COUNT;
+static int g_visible_queue_count = 4;
 
 static ShipType left_arrivals[ARRIVAL_HISTORY_SIZE];
 static int left_arrival_count = 0;
@@ -149,9 +153,10 @@ static void build_left_queue_line(const ReadyQueue *queue, char *line)
     copy_text_at(line, 0, "LQ:");
 
     int pos = 3;
+    int shown = 0;
     ReadyNode *current = queue != NULL ? queue->front : NULL;
 
-    while (current != NULL && pos < 15) {
+    while (current != NULL && pos < 15 && shown < g_visible_queue_count) {
         if (current->ship != NULL) {
             line[pos++] = ship_type_symbol(current->ship->type);
         }
@@ -160,6 +165,7 @@ static void build_left_queue_line(const ReadyQueue *queue, char *line)
             line[pos++] = ' ';
         }
 
+        shown++;
         current = current->next;
     }
 
@@ -173,9 +179,10 @@ static void build_right_queue_line(const ReadyQueue *queue, char *line)
     copy_text_at(line, 1, "RQ:");
 
     int pos = 4;
+    int shown = 0;
     ReadyNode *current = queue != NULL ? queue->front : NULL;
 
-    while (current != NULL && pos < LCD_COLS) {
+    while (current != NULL && pos < LCD_COLS && shown < g_visible_queue_count) {
         if (current->ship != NULL) {
             line[pos++] = ship_type_symbol(current->ship->type);
         }
@@ -184,6 +191,7 @@ static void build_right_queue_line(const ReadyQueue *queue, char *line)
             line[pos++] = ' ';
         }
 
+        shown++;
         current = current->next;
     }
 }
@@ -409,7 +417,7 @@ static void neopixel_init(void)
 {
     led_strip_config_t strip_config = {
         .strip_gpio_num = NEOPIXEL_GPIO,
-        .max_leds = PHYSICAL_LED_COUNT,
+        .max_leds = g_physical_led_count,
     };
 
     led_strip_rmt_config_t rmt_config = {
@@ -433,7 +441,7 @@ static void neopixel_init(void)
     led_strip_clear(strip_handle);
     printf("[NEOPIXEL] Tira lista. GPIO=%d LEDs=%d\n",
            NEOPIXEL_GPIO,
-           PHYSICAL_LED_COUNT);
+           g_physical_led_count);
 }
 
 static void set_pixel_color(int led_index, ShipType type, int multiple)
@@ -471,6 +479,32 @@ static void set_pixel_color(int led_index, ShipType type, int multiple)
 /* =========================
  * API publica
  * ========================= */
+void lcd_display_set_config(int physical_led_count, int visible_queue_count)
+{
+    if (physical_led_count < 1) {
+        physical_led_count = 1;
+    }
+
+    if (physical_led_count > MAX_PHYSICAL_LED_COUNT) {
+        physical_led_count = MAX_PHYSICAL_LED_COUNT;
+    }
+
+    if (visible_queue_count < 1) {
+        visible_queue_count = 1;
+    }
+
+    if (visible_queue_count > 4) {
+        visible_queue_count = 4;
+    }
+
+    g_physical_led_count = physical_led_count;
+    g_visible_queue_count = visible_queue_count;
+
+    printf("[LCD/HW] Config visual: LEDs=%d barcos_visibles=%d\n",
+           g_physical_led_count,
+           g_visible_queue_count);
+}
+
 void lcd_display_init(void)
 {
     lcd_init_all();
@@ -548,11 +582,11 @@ void lcd_display_update_channel(
         channel_length = 1;
     }
 
-    ShipType led_type[PHYSICAL_LED_COUNT];
-    int led_used[PHYSICAL_LED_COUNT];
-    int led_multiple[PHYSICAL_LED_COUNT];
+    ShipType led_type[MAX_PHYSICAL_LED_COUNT];
+    int led_used[MAX_PHYSICAL_LED_COUNT];
+    int led_multiple[MAX_PHYSICAL_LED_COUNT];
 
-    for (int i = 0; i < PHYSICAL_LED_COUNT; i++) {
+    for (int i = 0; i < g_physical_led_count; i++) {
         led_type[i] = NORMAL;
         led_used[i] = 0;
         led_multiple[i] = 0;
@@ -568,14 +602,14 @@ void lcd_display_update_channel(
             continue;
         }
 
-        int led_index = (positions[i] * PHYSICAL_LED_COUNT) / channel_length;
+        int led_index = (positions[i] * g_physical_led_count) / channel_length;
 
         if (led_index < 0) {
             led_index = 0;
         }
 
-        if (led_index >= PHYSICAL_LED_COUNT) {
-            led_index = PHYSICAL_LED_COUNT - 1;
+        if (led_index >= g_physical_led_count) {
+            led_index = g_physical_led_count - 1;
         }
 
         if (led_used[led_index]) {
@@ -586,7 +620,7 @@ void lcd_display_update_channel(
         }
     }
 
-    for (int i = 0; i < PHYSICAL_LED_COUNT; i++) {
+    for (int i = 0; i < g_physical_led_count; i++) {
         if (led_used[i]) {
             set_pixel_color(i, led_type[i], led_multiple[i]);
         }

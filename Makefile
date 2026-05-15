@@ -1,32 +1,76 @@
-CC=gcc
-CFLAGS=-Wall -Wextra -std=c11
-TARGET=scheduling_ships
+# ============================================================
+# Scheduling Ships - Makefile auxiliar
+# Proyecto CE4303 Principios de Sistemas Operativos
+#
+# Este Makefile NO reemplaza ESP-IDF.
+# Solo simplifica los comandos frecuentes de build, flash,
+# monitor, GUI y limpieza.
+# ============================================================
 
-# Se incluyen todos los módulos del proyecto para asegurar la compilación completa
-SRCS=main.c scheduler.c scheduler_rr.c scheduler_priority.c scheduler_sjf.c scheduler_strn.c scheduler_fcfs.c scheduler_edf.c scheduler_selector.c canal.c ship_tasks.c ready_queue.c lcd_display.c scheduler_rr_freertos.c scheduler_priority_freertos.c scheduler_sjf_freertos.c scheduler_strn_freertos.c scheduler_fcfs_freertos.c scheduler_edf_freertos.c
+# Ajustar si cambia la instalación de ESP-IDF
+IDF_EXPORT ?= /home/mauricio/.espressif/v6.0.1/esp-idf/export.sh
 
-all: $(TARGET)
+# Puerto serial del ESP32-C6
+PORT ?= /dev/ttyUSB0
 
-$(TARGET): $(SRCS)
-	$(CC) $(CFLAGS) -o $(TARGET) $(SRCS)
+# Baudrate del monitor y GUI
+BAUD ?= 115200
 
-run-rr: $(TARGET)
-	./$(TARGET) rr 2
+# Rutas del proyecto
+PROJECT_ROOT := $(CURDIR)
+ESP_PROJECT := $(PROJECT_ROOT)/hardware/canal_esp_test
+GUI_DIR := $(PROJECT_ROOT)/gui
 
-run-priority: $(TARGET)
-	./$(TARGET) priority
+# Python del entorno ESP-IDF, útil porque normalmente ya tiene pyserial
+IDF_PYTHON ?= /home/mauricio/.espressif/python_env/idf6.0_py3.12_env/bin/python
 
-run-sjf: $(TARGET)
-	./$(TARGET) sjf
+.PHONY: help env build fullclean flash monitor flash-monitor gui config clean
 
-run-strn: $(TARGET)
-	./$(TARGET) strn
+help:
+	@echo "Scheduling Ships - comandos disponibles"
+	@echo ""
+	@echo "  make build              Compila el firmware ESP32"
+	@echo "  make fullclean          Limpieza completa ESP-IDF"
+	@echo "  make flash              Flashea el ESP32"
+	@echo "  make monitor            Abre monitor serial"
+	@echo "  make flash-monitor      Flashea y abre monitor"
+	@echo "  make gui                Abre la interfaz grafica"
+	@echo "  make config             Abre config.txt con nano"
+	@echo "  make clean              Limpieza normal ESP-IDF"
+	@echo ""
+	@echo "Variables opcionales:"
+	@echo "  PORT=/dev/ttyUSB0"
+	@echo "  BAUD=115200"
+	@echo ""
+	@echo "Ejemplos:"
+	@echo "  make build"
+	@echo "  make flash-monitor PORT=/dev/ttyUSB0"
+	@echo "  make gui PORT=/dev/ttyUSB0"
 
-run-fcfs: $(TARGET)
-	./$(TARGET) fcfs
+env:
+	@echo "Para activar ESP-IDF manualmente:"
+	@echo "source $(IDF_EXPORT)"
 
-run-edf: $(TARGET)
-	./$(TARGET) edf
+build:
+	bash -lc 'source "$(IDF_EXPORT)" && cd "$(ESP_PROJECT)" && idf.py build'
+
+fullclean:
+	bash -lc 'source "$(IDF_EXPORT)" && cd "$(ESP_PROJECT)" && idf.py fullclean'
 
 clean:
-	rm -f $(TARGET) *.o
+	bash -lc 'source "$(IDF_EXPORT)" && cd "$(ESP_PROJECT)" && idf.py clean'
+
+flash:
+	bash -lc 'source "$(IDF_EXPORT)" && cd "$(ESP_PROJECT)" && idf.py -p "$(PORT)" flash'
+
+monitor:
+	bash -lc 'source "$(IDF_EXPORT)" && cd "$(ESP_PROJECT)" && idf.py -p "$(PORT)" monitor'
+
+flash-monitor:
+	bash -lc 'source "$(IDF_EXPORT)" && cd "$(ESP_PROJECT)" && idf.py -p "$(PORT)" flash monitor'
+
+gui:
+	cd "$(GUI_DIR)" && "$(IDF_PYTHON)" gui.py --port "$(PORT)" --baud "$(BAUD)"
+
+config:
+	nano "$(PROJECT_ROOT)/config.txt"

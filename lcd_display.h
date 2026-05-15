@@ -4,7 +4,10 @@
 #include "ready_queue.h"
 #include "ship_tasks.h"
 
-#define LCD_DISPLAY_MAX_CHANNEL_SHIPS 4
+#define LCD_DISPLAY_MAX_CHANNEL_SHIPS 32
+
+/* Configuracion visual cargada desde config.txt. */
+void lcd_display_set_config(int physical_led_count, int visible_queue_count);
 
 /*
  * Inicializa toda la visualizacion fisica:
